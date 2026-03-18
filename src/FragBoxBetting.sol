@@ -25,13 +25,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
 
     // Faceit API protection (if API is down or match not finished)
-    string private constant SOURCE =
-        "const matchId = args[0];"
-        "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`"
-        "});"
-        "if (res.error) throw Error('Faceit API unavailable');"
-        "const data = res.data;"
+    string private constant SOURCE = "const matchId = args[0];" "const res = await Functions.makeHttpRequest({"
+        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`" "});"
+        "if (res.error) throw Error('Faceit API unavailable');" "const data = res.data;"
         "if (data.status !== 'finished') throw Error('Match not finished');"
         "let winner = data.results.winner || 'draw';"
         "if (data.results.score.faction1 === data.results.score.faction2) winner = 'draw';"
@@ -102,12 +98,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__MatchAlreadyResolved(matchId);
         }
 
-        mb.bets.push(Bet({
-            wallet: msg.sender,
-            playerId: playerId,
-            faction: faction,
-            amount: msg.value
-        }));
+        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: msg.value}));
     }
 
     function requestResolution(string calldata matchId) external {
@@ -127,12 +118,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         args[0] = matchId;
         req.setArgs(args);
 
-        bytes32 requestId = _sendRequest(
-            req.encodeCBOR(),
-            I_SUBSCRIPTIONID,
-            CALLBACK_GAS_LIMIT,
-            I_DONID
-        );
+        bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
         mb.requestId = requestId;
         mb.requestTimestamp = block.timestamp;
@@ -169,7 +155,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         require(block.timestamp > mb.requestTimestamp + 24 hours, "Timeout not reached");
 
         // Refund all bets
-        for (uint i = 0; i < mb.bets.length; i++) {
+        for (uint256 i = 0; i < mb.bets.length; i++) {
             //payable(mb.bets[i].wallet).transfer(mb.bets[i].amount);
             Address.sendValue(payable(mb.bets[i].wallet), mb.bets[i].amount);
             mb.bets[i].amount = 0;
