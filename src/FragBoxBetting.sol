@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.20;
 
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
@@ -13,15 +12,18 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__NeedsMoreThanZero();
-    error FragBoxBetting__MatchAlreadyResolved(string matchId);
-    error FragBoxBetting__NoBetsPlaced(string matchId);
+    error FragBoxBetting__MatchAlreadyResolved(bytes32 matchId);
+    error FragBoxBetting__NoBetsPlaced(bytes32 matchId);
     error FragBoxBetting__FaceitAPIUnavailable();
+    error FragBoxBetting__StringTooLong(string str);
+    error FragBoxBetting__TimeoutNotReached();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
 
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
+    uint256 private constant TIMEOUT_DURATION = 24 hours;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
 
     // Faceit API protection (if API is down or match not finished)
@@ -35,8 +37,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     struct Bet {
         address wallet;
-        string playerId;
-        string faction; // "faction1" or "faction2"
+        string playerId; // kept as string (user-controlled, not used as key)
+        string faction; // "faction1", "faction2", or "draw"
         uint256 amount;
     }
 
@@ -48,8 +50,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 requestTimestamp;
     }
 
-    mapping(string => MatchBet) public matchBets;
-    mapping(bytes32 => string) public requestToMatchId;
+    mapping(bytes32 => MatchBet) public matchBets;
+    mapping(bytes32 => bytes32) public requestToMatchId; // requestId => matchId (bytes32)
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
@@ -57,9 +59,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint64 private immutable I_SUBSCRIPTIONID;
     address private immutable I_LINKTOKEN;
 
-    event RequestSent(bytes32 indexed requestId, string matchId);
+    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchId);
     event RequestFulfilled(bytes32 indexed requestId, string winnerFaction);
-    event EmergencyRefund(string matchId);
+    event EmergencyRefund(bytes32 indexed matchId);
 
     modifier moreThanZero(uint256 amount) {
         _moreThanZero(amount);
@@ -72,13 +74,42 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
     }
 
+    // =============================================
+    // Helpers: string <-> bytes32 conversion
+    // =============================================
+    /// @dev Converts string to bytes32 (right-padded). Reverts if longer than 32 bytes.
+    function _stringToBytes32(string calldata s) internal pure returns (bytes32) {
+        bytes memory b = bytes(s);
+        if (b.length > 32) {
+            revert FragBoxBetting__StringTooLong(s);
+        }
+
+        // This silences the unsafe-typecast warning
+        bytes32 result;
+        assembly {
+            result := mload(add(b, 32))
+        }
+        return result;
+    }
+
+    /// @dev Converts bytes32 back to string (trims trailing zeros). Useful for off-chain or events if needed.
+    function _bytes32ToString(bytes32 b) internal pure returns (string memory) {
+        uint256 len = 0;
+        while (len < 32 && b[len] != 0) ++len;
+        bytes memory result = new bytes(len);
+        for (uint256 i = 0; i < len; ++i) {
+            result[i] = b[i];
+        }
+        return string(result);
+    }
+
     constructor(
         address ethUsdPriceFeed,
         address chainLinkFunctionsRouter,
         bytes32 donId,
         uint64 subscriptionId,
         address linkToken
-    ) Ownable(msg.sender) FunctionsClient(msg.sender) {
+    ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
         I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
         I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
         I_DONID = donId;
@@ -86,12 +117,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         I_LINKTOKEN = linkToken;
     }
 
-    function deposit(string calldata matchId, string calldata playerId, string calldata faction)
+    function deposit(string calldata matchIdStr, string calldata playerId, string calldata faction)
         external
         payable
         nonReentrant
         moreThanZero(msg.value)
     {
+        bytes32 matchId = _stringToBytes32(matchIdStr);
+
         MatchBet storage mb = matchBets[matchId];
 
         if (bytes(mb.winnerFaction).length != 0) {
@@ -101,21 +134,23 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: msg.value}));
     }
 
-    function requestResolution(string calldata matchId) external {
+    function requestResolution(string calldata matchIdStr) external {
+        bytes32 matchId = _stringToBytes32(matchIdStr);
+
         MatchBet storage mb = matchBets[matchId];
 
         if (bytes(mb.winnerFaction).length != 0) {
             revert FragBoxBetting__MatchAlreadyResolved(matchId);
         }
-
         if (mb.bets.length == 0) {
             revert FragBoxBetting__NoBetsPlaced(matchId);
         }
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(SOURCE);
+
         string[] memory args = new string[](1);
-        args[0] = matchId;
+        args[0] = matchIdStr; // Chainlink Functions still expects string
         req.setArgs(args);
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
@@ -128,10 +163,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
-        string memory matchId = requestToMatchId[requestId];
+        bytes32 matchId = requestToMatchId[requestId];
 
         if (err.length > 0) {
-            // Faceit API down or match not finished → revert the callback (no state change)
             revert FragBoxBetting__FaceitAPIUnavailable();
         }
 
@@ -144,19 +178,26 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         emit RequestFulfilled(requestId, winnerFaction);
     }
 
-    function claim(string calldata matchId) external nonReentrant {
-        // ... (same payout logic you had before — winners get pot, losers 0, draw = refund)
-        // I can paste the full claim if you want, just let me know
+    // Placeholder for claim — let me know if you want this refactored too
+    function claim(string calldata matchIdStr) external nonReentrant {
+        bytes32 matchId = _stringToBytes32(matchIdStr);
+        // ... your payout logic using matchId ...
     }
 
-    function emergencyRefund(string calldata matchId) external {
+    function emergencyRefund(string calldata matchIdStr) external {
+        bytes32 matchId = _stringToBytes32(matchIdStr);
+
         MatchBet storage mb = matchBets[matchId];
-        require(!mb.resolved, "Already resolved");
-        require(block.timestamp > mb.requestTimestamp + 24 hours, "Timeout not reached");
+
+        if (mb.resolved) {
+            revert FragBoxBetting__MatchAlreadyResolved(matchId);
+        }
+        if (block.timestamp <= mb.requestTimestamp + TIMEOUT_DURATION) {
+            revert FragBoxBetting__TimeoutNotReached();
+        }
 
         // Refund all bets
         for (uint256 i = 0; i < mb.bets.length; i++) {
-            //payable(mb.bets[i].wallet).transfer(mb.bets[i].amount);
             Address.sendValue(payable(mb.bets[i].wallet), mb.bets[i].amount);
             mb.bets[i].amount = 0;
         }
@@ -166,18 +207,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
         (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
-
-        // 1 ETH = $1000
-        // The returned value from CL will be 1000 * 1e8
-
         return (SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
     }
 
-    function getAdditionalFeedPrecision() external pure returns (uint256) {
-        return ADDITIONAL_FEED_PRECISION;
+    function getMatchBet(bytes32 matchId) external view returns (MatchBet memory) {
+        return matchBets[matchId];
     }
 
-    function getPrecision() external pure returns (uint256) {
-        return PRECISION;
+    function getMatchBet(string calldata matchIdStr) external view returns (MatchBet memory) {
+        return matchBets[_stringToBytes32(matchIdStr)];
     }
 }
