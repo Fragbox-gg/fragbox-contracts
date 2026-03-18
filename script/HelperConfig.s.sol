@@ -29,7 +29,7 @@ contract HelperConfig is Script {
         }
     }
 
-    function getSepoliaBaseConfig() public returns (NetworkConfig memory) {
+    function getSepoliaBaseConfig() public pure returns (NetworkConfig memory) {
         NetworkConfig memory sepoliaConfig = NetworkConfig({
             ethUsdPriceFeed: 0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1,
             chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
