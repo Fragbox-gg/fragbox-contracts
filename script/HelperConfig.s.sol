@@ -13,6 +13,10 @@ contract HelperConfig is Script {
 
     struct NetworkConfig {
         address ethUsdPriceFeed;
+        address chainLinkFunctionsRouter;
+        bytes32 donId;
+        uint64 subscriptionId;
+        address linkToken;
     }
 
     constructor() {
@@ -26,8 +30,13 @@ contract HelperConfig is Script {
     }
 
     function getSepoliaBaseConfig() public returns (NetworkConfig memory) {
-        NetworkConfig memory sepoliaConfig =
-            NetworkConfig({ethUsdPriceFeed: 0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1});
+        NetworkConfig memory sepoliaConfig = NetworkConfig({
+            ethUsdPriceFeed: 0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1,
+            chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
+            donId: 0x66756e2d626173652d7365706f6c69612d310000000000000000000000000000,
+            subscriptionId: 607,
+            linkToken: 0xE4aB69C077896252FAFBD49EFD26B5D171A32410
+        });
         return sepoliaConfig;
     }
 
@@ -45,7 +54,13 @@ contract HelperConfig is Script {
         MockV3Aggregator ethUsdMockPriceFeed = new MockV3Aggregator(DECIMALS, ETH_USD_PRICE);
         vm.stopBroadcast();
 
-        NetworkConfig memory anvilConfig = NetworkConfig({ethUsdPriceFeed: address(ethUsdMockPriceFeed)});
+        NetworkConfig memory anvilConfig = NetworkConfig({
+            ethUsdPriceFeed: address(ethUsdMockPriceFeed),
+            chainLinkFunctionsRouter: address(0),
+            donId: bytes32(0),
+            subscriptionId: 0,
+            linkToken: address(0)
+        });
         return anvilConfig;
     }
 }
