@@ -21,7 +21,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint64 private immutable I_SUBSCRIPTIONID;
     address private immutable I_LINKTOKEN;
 
-    constructor(address ethUsdPriceFeed, address chainLinkFunctionsRouter, bytes32 donId, uint64 subscriptionId, address linkToken) Ownable(msg.sender) FunctionsClient(msg.sender) {
+    constructor(
+        address ethUsdPriceFeed,
+        address chainLinkFunctionsRouter,
+        bytes32 donId,
+        uint64 subscriptionId,
+        address linkToken
+    ) Ownable(msg.sender) FunctionsClient(msg.sender) {
         I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
         I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
         I_DONID = donId;

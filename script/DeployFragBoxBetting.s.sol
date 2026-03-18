@@ -17,7 +17,8 @@ contract DeployFragBoxBetting is Script {
         ) = helperConfig.activeNetworkConfig();
 
         vm.startBroadcast();
-        FragBoxBetting fragBoxBetting = new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
+        FragBoxBetting fragBoxBetting =
+            new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
         vm.stopBroadcast();
         return fragBoxBetting;
     }
