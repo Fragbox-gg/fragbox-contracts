@@ -6,7 +6,7 @@ import {MockV3Aggregator} from "@chainlink/contracts/src/v0.8/tests/MockV3Aggreg
 import {Script, console} from "forge-std/Script.sol";
 import {ChainChecker} from "../src/ChainChecker.sol";
 
-contract HelperConfig is Script {
+contract HelperConfig is Script, ChainChecker {
     NetworkConfig public activeNetworkConfig;
 
     uint8 public constant DECIMALS = 8;
@@ -21,21 +21,21 @@ contract HelperConfig is Script {
     }
 
     constructor() {
-        if (block.chainid == ChainChecker.BASE_MAINNET_CHAIN_ID) {
+        if (block.chainid == BASE_MAINNET_CHAIN_ID) {
             activeNetworkConfig = getBaseMainnetConfig();
-        } else if (block.chainid == ChainChecker.BASE_SEPOLIA_CHAIN_ID) {
+        } else if (block.chainid == BASE_SEPOLIA_CHAIN_ID) {
             activeNetworkConfig = getBaseSepoliaConfig();
-        } else if (block.chainid == ChainChecker.ANVIL_CHAIN_ID) {
+        } else if (block.chainid == ANVIL_CHAIN_ID) {
             activeNetworkConfig = getOrCreateAnvilConfig();
         } else {
             console.log("Error: invalid chain id! ", block.chainid);
         }
     }
 
-    function getBaseMainnetConfig() pubic pure returns (NetworkConfig memory) {
+    function getBaseMainnetConfig() public pure returns (NetworkConfig memory) {
         return NetworkConfig({
             ethUsdPriceFeed: 0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70,
-            chainLinkFunctionsRouter: 0xf9b8fc078197181c841c296c876945aaa425b278,
+            chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
             donId: 0x66756e2d626173652d6d61696e6e65742d310000000000000000000000000000,
             subscriptionId: 0, // TODO
             linkToken: 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196
