@@ -117,6 +117,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         I_LINKTOKEN = linkToken;
     }
 
+    /**
+     * Place Bet on an ongoing faceit match that you are a part of
+     * @param matchIdStr The id of the match the player is betting on
+     * @param playerId The id of the player who is placing the bet
+     * @param faction The faction of the player who is placing the bet
+     */
     function deposit(string calldata matchIdStr, string calldata playerId, string calldata faction)
         external
         payable
@@ -134,6 +140,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: msg.value}));
     }
 
+    /**
+     * Ask the chainlink functions oracle to check the API status of a match
+     * @param matchIdStr The matchId of the faceit match you want to check
+     */
     function requestResolution(string calldata matchIdStr) external {
         bytes32 matchId = _stringToBytes32(matchIdStr);
 
@@ -162,6 +172,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         emit RequestSent(requestId, matchId);
     }
 
+    /**
+     * The chainlink functions oracle calls this function when it finishes calling the faceit API
+     * @param requestId The Id of the chainlink functions oracle request. Set in requestResolution()
+     * @param response The response body of the API request
+     * @param err The error message of the API request
+     */
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
         bytes32 matchId = requestToMatchId[requestId];
 
@@ -184,6 +200,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         // ... your payout logic using matchId ...
     }
 
+    /**
+     * Refund any bets that haven't completed in 24 hours
+     * @param matchIdStr The matchId to check the status of
+     */
     function emergencyRefund(string calldata matchIdStr) external {
         bytes32 matchId = _stringToBytes32(matchIdStr);
 
@@ -205,15 +225,28 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         emit EmergencyRefund(matchId);
     }
 
+    /**
+     * Converts an amount of ETH to its equivalent $ amount using chainlink price feed oracles
+     * @param amount The amount of ETH in wei
+     * @return uint256 The $ amount equivalent of input parameter amount
+     */
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
         (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
         return (SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
     }
 
+    /**
+     * Gets the match bet information for a given match id
+     * @param matchId The id of the match in the faceit data API
+     */
     function getMatchBet(bytes32 matchId) external view returns (MatchBet memory) {
         return matchBets[matchId];
     }
 
+    /**
+     * Gets the match bet information for a given match id
+     * @param matchIdStr The id of the match in the faceit data API
+     */
     function getMatchBet(string calldata matchIdStr) external view returns (MatchBet memory) {
         return matchBets[_stringToBytes32(matchIdStr)];
     }
