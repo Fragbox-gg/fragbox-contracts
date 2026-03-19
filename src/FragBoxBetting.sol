@@ -111,7 +111,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         MatchBet storage mb = matchBets[matchKey];
 
-        if (bytes(mb.winnerFaction).length != 0) {
+        if (bytes(mb.winnerFaction).length != 0 || mb.resolved) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
 
