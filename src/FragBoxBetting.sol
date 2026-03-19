@@ -12,10 +12,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__NeedsMoreThanZero();
-    error FragBoxBetting__MatchAlreadyResolved(bytes32 matchId);
-    error FragBoxBetting__NoBetsPlaced(bytes32 matchId);
+    error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
+    error FragBoxBetting__NoBetsPlaced(bytes32 matchKey);
     error FragBoxBetting__FaceitAPIUnavailable();
-    error FragBoxBetting__StringTooLong(string str);
     error FragBoxBetting__TimeoutNotReached();
 
     using FunctionsRequest for FunctionsRequest.Request;
@@ -51,7 +50,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     mapping(bytes32 => MatchBet) public matchBets;
-    mapping(bytes32 => bytes32) public requestToMatchId; // requestId => matchId (bytes32)
+    mapping(bytes32 => bytes32) public requestToMatchKey; // requestId => matchKey (bytes32)
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
@@ -59,9 +58,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint64 private immutable I_SUBSCRIPTIONID;
     address private immutable I_LINKTOKEN;
 
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchId);
+    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, string winnerFaction);
-    event EmergencyRefund(bytes32 indexed matchId);
+    event EmergencyRefund(bytes32 indexed matchKey);
 
     modifier moreThanZero(uint256 amount) {
         _moreThanZero(amount);
@@ -74,33 +73,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
     }
 
-    // =============================================
-    // Helpers: string <-> bytes32 conversion
-    // =============================================
-    /// @dev Converts string to bytes32 (right-padded). Reverts if longer than 32 bytes.
-    function _stringToBytes32(string calldata s) internal pure returns (bytes32) {
-        bytes memory b = bytes(s);
-        if (b.length > 32) {
-            revert FragBoxBetting__StringTooLong(s);
-        }
-
-        // This silences the unsafe-typecast warning
-        bytes32 result;
-        assembly {
-            result := mload(add(b, 32))
-        }
-        return result;
-    }
-
-    /// @dev Converts bytes32 back to string (trims trailing zeros). Useful for off-chain or events if needed.
-    function _bytes32ToString(bytes32 b) internal pure returns (string memory) {
-        uint256 len = 0;
-        while (len < 32 && b[len] != 0) ++len;
-        bytes memory result = new bytes(len);
-        for (uint256 i = 0; i < len; ++i) {
-            result[i] = b[i];
-        }
-        return string(result);
+    /**
+     * Converts the match id string into a bytes object for gas savings
+     * @param matchIdStr The match id string to convert
+     */
+    function _getMatchKey(string calldata matchIdStr) internal pure returns (bytes32) {
+        return keccak256(bytes(matchIdStr));
     }
 
     constructor(
@@ -129,12 +107,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         nonReentrant
         moreThanZero(msg.value)
     {
-        bytes32 matchId = _stringToBytes32(matchIdStr);
+        bytes32 matchKey = _getMatchKey(matchIdStr);
 
-        MatchBet storage mb = matchBets[matchId];
+        MatchBet storage mb = matchBets[matchKey];
 
         if (bytes(mb.winnerFaction).length != 0) {
-            revert FragBoxBetting__MatchAlreadyResolved(matchId);
+            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
 
         mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: msg.value}));
@@ -145,15 +123,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @param matchIdStr The matchId of the faceit match you want to check
      */
     function requestResolution(string calldata matchIdStr) external {
-        bytes32 matchId = _stringToBytes32(matchIdStr);
+        bytes32 matchKey = _getMatchKey(matchIdStr);
 
-        MatchBet storage mb = matchBets[matchId];
+        MatchBet storage mb = matchBets[matchKey];
 
         if (bytes(mb.winnerFaction).length != 0) {
-            revert FragBoxBetting__MatchAlreadyResolved(matchId);
+            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
         if (mb.bets.length == 0) {
-            revert FragBoxBetting__NoBetsPlaced(matchId);
+            revert FragBoxBetting__NoBetsPlaced(matchKey);
         }
 
         FunctionsRequest.Request memory req;
@@ -167,9 +145,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         mb.requestId = requestId;
         mb.requestTimestamp = block.timestamp;
-        requestToMatchId[requestId] = matchId;
+        requestToMatchKey[requestId] = matchKey;
 
-        emit RequestSent(requestId, matchId);
+        emit RequestSent(requestId, matchKey);
     }
 
     /**
@@ -179,7 +157,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @param err The error message of the API request
      */
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
-        bytes32 matchId = requestToMatchId[requestId];
+        bytes32 matchKey = requestToMatchKey[requestId];
 
         if (err.length > 0) {
             revert FragBoxBetting__FaceitAPIUnavailable();
@@ -187,7 +165,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         string memory winnerFaction = string(response);
 
-        MatchBet storage mb = matchBets[matchId];
+        MatchBet storage mb = matchBets[matchKey];
         mb.winnerFaction = winnerFaction;
         mb.resolved = true;
 
@@ -196,7 +174,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     // Placeholder for claim — let me know if you want this refactored too
     function claim(string calldata matchIdStr) external nonReentrant {
-        bytes32 matchId = _stringToBytes32(matchIdStr);
+        bytes32 matchKey = _getMatchKey(matchIdStr);
         // ... your payout logic using matchId ...
     }
 
@@ -205,12 +183,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @param matchIdStr The matchId to check the status of
      */
     function emergencyRefund(string calldata matchIdStr) external {
-        bytes32 matchId = _stringToBytes32(matchIdStr);
+        bytes32 matchKey = _getMatchKey(matchIdStr);
 
-        MatchBet storage mb = matchBets[matchId];
+        MatchBet storage mb = matchBets[matchKey];
 
         if (mb.resolved) {
-            revert FragBoxBetting__MatchAlreadyResolved(matchId);
+            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
         if (block.timestamp <= mb.requestTimestamp + TIMEOUT_DURATION) {
             revert FragBoxBetting__TimeoutNotReached();
@@ -222,7 +200,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             mb.bets[i].amount = 0;
         }
         mb.resolved = true;
-        emit EmergencyRefund(matchId);
+        emit EmergencyRefund(matchKey);
     }
 
     /**
@@ -237,10 +215,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Gets the match bet information for a given match id
-     * @param matchId The id of the match in the faceit data API
+     * @param matchKey The id of the match in the faceit data API
      */
-    function getMatchBet(bytes32 matchId) external view returns (MatchBet memory) {
-        return matchBets[matchId];
+    function getMatchBet(bytes32 matchKey) external view returns (MatchBet memory) {
+        return matchBets[matchKey];
     }
 
     /**
@@ -248,6 +226,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @param matchIdStr The id of the match in the faceit data API
      */
     function getMatchBet(string calldata matchIdStr) external view returns (MatchBet memory) {
-        return matchBets[_stringToBytes32(matchIdStr)];
+        return matchBets[_getMatchKey(matchIdStr)];
     }
 }
