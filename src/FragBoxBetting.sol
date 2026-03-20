@@ -21,6 +21,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__BetTooSmall(uint256 amount);
     error FragBoxBetting__AlreadyRequested(bytes32 matchKey);
     error FragBoxBetting__InvalidFaction(string factionStr);
+    error FragBoxBetting__FaceitAPIKeyNotSet();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -33,14 +34,57 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
 
-    // Faceit API protection (if API is down or match not finished)
-    string private constant SOURCE = "const matchId = args[0];" "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`" "});"
-        "if (res.error) throw Error('Faceit API unavailable');" "const data = res.data;"
-        "if (data.status !== 'finished') throw Error('Match not finished');"
-        "let winner = data.results.winner || 'draw';"
-        "if (data.results.score.faction1 === data.results.score.faction2) winner = 'draw';"
-        "return Functions.encodeString(winner);";
+    // Called ONCE by backend — returns roster + initial status
+    string private constant ROSTER_SOURCE_TEMPLATE =
+        "const matchId = args[0];"
+        "const apiKey = args[1];"
+        "const res = await Functions.makeHttpRequest({"
+        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }"
+        "});"
+        "if (res.error) throw Error('Faceit API error');"
+        "const data = res.data;"
+
+        "let f1 = '';"
+        "let f2 = '';"
+        "if (data.teams?.faction1?.roster) {"
+        "  f1 = data.teams.faction1.roster.map(p => p.player_id).join(',');"
+        "}"
+        "if (data.teams?.faction2?.roster) {"
+        "  f2 = data.teams.faction2.roster.map(p => p.player_id).join(',');"
+        "}"
+
+        "const status = data.status || 'UNKNOWN';"
+
+        "return Functions.encodeString(JSON.stringify({"
+        "  type: 'roster',"
+        "  f1: f1,"
+        "  f2: f2,"
+        "  status: status"
+        "}));";
+
+    // Called REPEATEDLY by backend — status + winner only
+    string private constant STATUS_SOURCE_TEMPLATE =
+        "const matchId = args[0];"
+        "const apiKey = args[1];"
+        "const res = await Functions.makeHttpRequest({"
+        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }"
+        "});"
+        "if (res.error) throw Error('Faceit API error');"
+        "const data = res.data;"
+
+        "const status = data.status || 'UNKNOWN';"
+        "let winner = 'unknown';"
+        "if (status === 'FINISHED' && data.results && data.results.winner) {"
+        "  winner = data.results.winner;"
+        "}"
+
+        "return Functions.encodeString(JSON.stringify({"
+        "  type: 'status',"
+        "  status: status,"
+        "  winner: winner"
+        "}));";
 
     enum Faction {
         Unknown,
@@ -65,10 +109,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 requestTimestamp;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
+        mapping(string => bool) isValidPlayer; // playerId => true if in roster
+        bool rosterValidated; // Has the oracle successfully updated rosters?
+        uint256 lastRosterUpdate; // timestamp of last successful update
+
+        string status; // "READY", "ONGOING", "FINISHED"
+        uint256 lastStatusUpdate;
     }
 
     mapping(bytes32 => MatchBet) public matchBets;
     mapping(bytes32 => bytes32) public requestToMatchKey; // requestId => matchKey (bytes32)
+
+    string private faceitApiKey;
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
@@ -76,11 +128,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint64 private immutable I_SUBSCRIPTIONID;
     address private immutable I_LINKTOKEN;
 
-    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction);
+    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction, string playerId);
+    event InvalidPlayerBet(bytes32 indexed matchKey, address indexed better, string playerId, Faction faction);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RequestFulfilled(bytes32 indexed requestId, string winnerFaction);
+    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
+    event RosterUpdated(bytes32 indexed matchKey, uint256 playerCount);
 
     modifier moreThanZero(uint256 amount) {
         _moreThanZero(amount);
@@ -113,6 +167,53 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return Faction.Unknown;
     }
 
+    /**
+     * Lightweight JSON string extractor - perfect for small Chainlink Functions responses
+     * @dev Only looks for "key":"value" pattern (no nested objects/arrays needed yet)
+     * @param json The response body
+     * @param key The value you're looking for
+     */
+    function _getJsonValue(string memory json, string memory key) internal pure returns (string memory) {
+        bytes memory data = bytes(json);
+        bytes memory search = bytes(string.concat('"', key, '":"'));
+
+        for (uint256 i = 0; i <= data.length - search.length; i++) {
+            if (_memcmp(data, i, search)) {
+                uint256 start = i + search.length;
+                uint256 end = start;
+                while (end < data.length && data[end] != '"') end++;
+                bytes memory value = new bytes(end - start);
+                for (uint256 k = 0; k < value.length; k++) value[k] = data[start + k];
+                return string(value);
+            }
+        }
+        return "";
+    }
+
+    function _memcmp(bytes memory a, uint256 offset, bytes memory b) internal pure returns (bool) {
+        if (a.length < offset + b.length) return false;
+        for (uint256 i = 0; i < b.length; i++) {
+            if (a[offset + i] != b[i]) return false;
+        }
+        return true;
+    }
+
+    function _addPlayersFromCsv(MatchBet storage mb, string memory csv) internal {
+        if (bytes(csv).length == 0) return;
+        bytes memory data = bytes(csv);
+        uint256 start = 0;
+        for (uint256 i = 0; i <= data.length; i++) {
+            if (i == data.length || data[i] == ',') {
+                if (i > start) {
+                    bytes memory id = new bytes(i - start);
+                    for (uint256 j = 0; j < id.length; j++) id[j] = data[start + j];
+                    mb.isValidPlayer[string(id)] = true;
+                }
+                start = i + 1;
+            }
+        }
+    }
+
     constructor(
         address ethUsdPriceFeed,
         address chainLinkFunctionsRouter,
@@ -125,6 +226,66 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         I_DONID = donId;
         I_SUBSCRIPTIONID = subscriptionId;
         I_LINKTOKEN = linkToken;
+    }
+
+    /**
+     * Owner-only setter so the API key is never in the source code on-chain
+     * @param _key Faceit Data API Client Key
+     */
+    function setFaceitApiKey(string calldata _key) external onlyOwner {
+        faceitApiKey = _key;
+    }
+
+    /**
+     * Called ONCE by backend to fetch and store player rosters
+     * @param matchIdStr The match Id to check
+     */
+    function updateMatchRoster(string calldata matchIdStr) external {
+        bytes32 matchKey = _getMatchKey(matchIdStr);
+        MatchBet storage mb = matchBets[matchKey];
+
+        if (mb.rosterValidated) revert FragBoxBetting__AlreadyRequested(matchKey);
+        if (bytes(faceitApiKey).length == 0) revert FragBoxBetting__FaceitAPIKeyNotSet();
+
+        FunctionsRequest.Request memory req;
+        req.initializeRequestForInlineJavaScript(ROSTER_SOURCE_TEMPLATE);
+
+        string[] memory args = new string[](2);
+        args[0] = matchIdStr;
+        args[1] = faceitApiKey;
+        req.setArgs(args);
+
+        bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
+
+        mb.requestId = requestId;
+        requestToMatchKey[requestId] = matchKey;
+        emit RequestSent(requestId, matchKey);
+    }
+
+    /**
+     * Called REPEATEDLY by backend to update match status
+     * @param matchIdStr The match Id to check
+     */
+    function updateMatchStatus(string calldata matchIdStr) external {
+        bytes32 matchKey = _getMatchKey(matchIdStr);
+        MatchBet storage mb = matchBets[matchKey];
+
+        if (mb.resolved || mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
+        if (bytes(faceitApiKey).length == 0) revert FragBoxBetting__FaceitAPIKeyNotSet();
+
+        FunctionsRequest.Request memory req;
+        req.initializeRequestForInlineJavaScript(STATUS_SOURCE_TEMPLATE);
+
+        string[] memory args = new string[](2);
+        args[0] = matchIdStr;
+        args[1] = faceitApiKey;
+        req.setArgs(args);
+
+        bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
+
+        mb.requestId = requestId;
+        requestToMatchKey[requestId] = matchKey;
+        emit RequestSent(requestId, matchKey);
     }
 
     /**
@@ -147,9 +308,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
 
-        Faction faction = _toFaction(factionStr);
-        if (faction == Faction.Unknown) {
+        Faction chosenFaction = _toFaction(factionStr);
+        if (chosenFaction == Faction.Unknown) {
             revert FragBoxBetting__InvalidFaction(factionStr);
+        }
+
+        // Soft validation - only warn after roster has been fetched at least once
+        if (mb.rosterValidated && !mb.isValidPlayer[playerId]) {
+            // Option A: Revert (strict)
+            // revert FragBoxBetting__PlayerNotInMatch();
+
+            // Option B: Allow but emit event (recommended for UX)
+            emit InvalidPlayerBet(matchKey, msg.sender, playerId, chosenFaction);
         }
 
         // Calculate house fee and actual bet amount
@@ -159,77 +329,56 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         // Send fee to owner
         Address.sendValue(payable(owner()), fee);
 
-        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: betAmount}));
+        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: chosenFaction, amount: betAmount}));
 
         mb.totalBetAmount += betAmount;
         mb.totalFeesCollected += fee;
 
-        emit BetPlaced(matchKey, msg.sender, betAmount, faction);
-    }
-
-    /**
-     * Ask the chainlink functions oracle to check the API status of a match
-     * @param matchIdStr The matchId of the faceit match you want to check
-     */
-    function requestResolution(string calldata matchIdStr) external {
-        bytes32 matchKey = _getMatchKey(matchIdStr);
-        MatchBet storage mb = matchBets[matchKey];
-
-        if (mb.resolved || mb.claimed) {
-            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
-        }
-        if (mb.bets.length == 0) {
-            revert FragBoxBetting__NoBetsPlaced(matchKey);
-        }
-        if (mb.requestId != bytes32(0)) {
-            revert FragBoxBetting__AlreadyRequested(matchKey);
-        }
-
-        FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(SOURCE);
-
-        string[] memory args = new string[](1);
-        args[0] = matchIdStr;
-        req.setArgs(args);
-
-        bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
-
-        mb.requestId = requestId;
-        mb.requestTimestamp = block.timestamp;
-        requestToMatchKey[requestId] = matchKey;
-
-        emit RequestSent(requestId, matchKey);
+        emit BetPlaced(matchKey, msg.sender, betAmount, chosenFaction, playerId);
     }
 
     /**
      * The chainlink functions oracle calls this function when it finishes calling the faceit API
-     * @param requestId The Id of the chainlink functions oracle request. Set in requestResolution()
+     * @param requestId The Id of the chainlink functions oracle request. Set in updateMatchRoster() and updateMatchStatus
      * @param response The response body of the API request
      * @param err The error message of the API request
      */
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
         bytes32 matchKey = requestToMatchKey[requestId];
-
         MatchBet storage mb = matchBets[matchKey];
-        if (mb.requestId != requestId) {
-            revert FragBoxBetting__MatchNotResolved(matchKey);
-        }
 
         if (err.length > 0) {
             revert FragBoxBetting__FaceitAPIUnavailable();
         }
 
-        string memory winnerStr = string(response);
-        Faction winnerFaction = _toFaction(winnerStr);
+        string memory json = string(response);
 
-        if (winnerFaction == Faction.Unknown) {
-            revert FragBoxBetting__FaceitAPIUnavailable(); // Bad response from oracle
+        string memory responseType = _getJsonValue(json, "type");
+        string memory status = _getJsonValue(json, "status");
+        string memory winner = _getJsonValue(json, "winner");
+        string memory f1Csv = _getJsonValue(json, "f1");
+        string memory f2Csv = _getJsonValue(json, "f2");
+
+        if (keccak256(bytes(responseType)) == keccak256(bytes("roster"))) {
+            _addPlayersFromCsv(mb, f1Csv);
+            _addPlayersFromCsv(mb, f2Csv);
+
+            mb.rosterValidated = true;
+            mb.status = status;
+            mb.lastRosterUpdate = block.timestamp;
+            emit RosterUpdated(matchKey, bytes(f1Csv).length > 0 || bytes(f2Csv).length > 0 ? 1 : 0);
+        } 
+        else if (keccak256(bytes(responseType)) == keccak256(bytes("status"))) {
+            mb.status = status;
+            mb.lastStatusUpdate = block.timestamp;
+
+            if (keccak256(bytes(status)) == keccak256(bytes("FINISHED"))) {
+                mb.winnerFaction = _toFaction(winner);
+                mb.resolved = true;
+            }
         }
 
-        mb.winnerFaction = winnerFaction;
-        mb.resolved = true;
-
-        emit RequestFulfilled(requestId, winnerStr);
+        emit RequestFulfilled(requestId, matchKey, status, winner);
     }
 
     /**
@@ -334,21 +483,5 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
         (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
         return (SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
-    }
-
-    /**
-     * Gets the match bet information for a given match id
-     * @param matchKey The id of the match in the faceit data API
-     */
-    function getMatchBet(bytes32 matchKey) external view returns (MatchBet memory) {
-        return matchBets[matchKey];
-    }
-
-    /**
-     * Gets the match bet information for a given match id
-     * @param matchIdStr The id of the match in the faceit data API
-     */
-    function getMatchBet(string calldata matchIdStr) external view returns (MatchBet memory) {
-        return matchBets[_getMatchKey(matchIdStr)];
     }
 }

@@ -16,9 +16,19 @@ contract DeployFragBoxBetting is Script {
             address linkToken
         ) = helperConfig.activeNetworkConfig();
 
+        string memory faceitApiKey = vm.envString("FACEIT_CLIENT_API_KEY");
+
+        if (bytes(faceitApiKey).length == 0) {
+            revert("FACEIT_CLIENT_API_KEY not set in .env");
+        }
+
         vm.startBroadcast();
+
         FragBoxBetting fragBoxBetting =
             new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
+
+        fragBoxBetting.setFaceitApiKey(faceitApiKey);
+        
         vm.stopBroadcast();
         return fragBoxBetting;
     }

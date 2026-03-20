@@ -15,6 +15,7 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
  */
 library OracleLib {
     error OracleLib__StalePrice();
+    error OracleLib__DecodeFailed();
 
     uint256 private constant TIMEOUT = 3 hours;
 
