@@ -131,7 +131,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         uint256 fee = (msg.value * DEPOSIT_FEE_PERCENTAGE) / PERCENTAGE_BASE;
         uint256 depositAmount = msg.value - fee;
-        Address.sendValue(payable(owner()), msg.value / DEPOSIT_FEE_PERCENTAGE);
+        Address.sendValue(payable(owner()), fee);
 
         mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: depositAmount}));
     }
@@ -198,47 +198,46 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function claim(string calldata matchIdStr) external nonReentrant {
         bytes32 matchKey = _getMatchKey(matchIdStr);
-
         MatchBet storage mb = matchBets[matchKey];
 
         if (!mb.resolved) {
             revert FragBoxBetting__MatchNotResolved(matchKey);
         }
 
+        uint256 totalWinningBet = 0;
+        uint256 totalLosingBet = 0;
+
+        // First pass: calculate totals
         uint256 betsLength = mb.bets.length;
-        uint256 losingFactionBetSum = 0;
-        uint256 winningFactionBetSum = 0;
-        payable[] memory winningWallets;
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
-            if (_compareStrings(bet.faction, "faction1")) {
-                if (_compareStrings(bet.winnerFaction, "faction1")) {
-                    winningWallets.push(payable(bet.wallet));
-                    winningFactionBetSum += bet.amount;
-                } else if (_compareStrings(bet.winnerFaction, "faction2")) {
-                    losingFactionBetSum += bet.amount;
-                }
-            }
-            else if (_compareStrings(bet.faction, "faction2")) {
-                if (_compareStrings(bet.winnerFaction, "faction2")) {
-                    winningWallets.push(payable(bet.wallet));
-                    winningFactionBetSum += bet.amount;
-                } else if (_compareStrings(bet.winnerFaction, "faction1")) {
-                    losingFactionBetSum += bet.amount;
-                }
+            if (_compareStrings(bet.faction, mb.winnerFaction)) {
+                totalWinningBet += bet.amount;
+            } else {
+                totalLosingBet += bet.amount;
             }
         }
 
-        uint256 winningWalletsLength = winningWallets.length;
-        for (uint256 i = 0; i < winningWalletsLength; i++) {
-            Address.sendValue(winningWallets[i], faction1BetSum / winningWalletsLength)
-        }
+        uint256 totalPot = totalWinningBet + totalLosingBet;
+        if (totalPot == 0) return;
 
-        // Refund rest of funds stored for this match
+        // Second pass: pay winners their proportional share
         for (uint256 i = 0; i < betsLength; i++) {
-            Address.sendValue(payable(mb.bets[i].wallet), mb.bets[i].amount);
-            mb.bets[i].amount = 0;
+            Bet storage bet = mb.bets[i];
+            if (_compareStrings(bet.faction, mb.winnerFaction) && bet.amount > 0) {
+                uint256 payout = (bet.amount * totalPot) / totalWinningBet;
+
+                // Optional: protect against tiny rounding dust
+                if (payout > 0) {
+                    Address.sendValue(payable(bet.wallet), payout);
+                }
+
+                bet.amount = 0; // prevent double claim
+            }
         }
+
+        // Optional: clear the match data or mark fully claimed
+        // mb.resolved = false; // or delete matchBets[matchKey];
 
         emit Claim(matchKey);
     }
