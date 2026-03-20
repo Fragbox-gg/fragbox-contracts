@@ -24,7 +24,7 @@ contract FragBoxBettingTest is Test {
 
     function testPlaceBetWithNoBalance() public {
         vm.startPrank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__NeedsMoreThanZero.selector);
+        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, 0));
         fragBoxBetting.deposit(MATCHID, PLAYERID, FACTION);
         vm.stopPrank();
     }

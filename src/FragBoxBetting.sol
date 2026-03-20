@@ -17,6 +17,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__NoBetsPlaced(bytes32 matchKey);
     error FragBoxBetting__FaceitAPIUnavailable();
     error FragBoxBetting__TimeoutNotReached();
+    error FragBoxBetting__MatchNotRequested();
+    error FragBoxBetting__BetTooSmall(uint256 amount);
+    error FragBoxBetting__AlreadyRequested(bytes32 matchKey);
+    error FragBoxBetting__InvalidFaction(string factionStr);
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -24,9 +28,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant TIMEOUT_DURATION = 24 hours;
-    uint256 private constant DEPOSIT_FEE_PERCENTAGE = 1; // 1 = 1%
+    uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
+    uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
 
     // Faceit API protection (if API is down or match not finished)
     string private constant SOURCE = "const matchId = args[0];" "const res = await Functions.makeHttpRequest({"
@@ -37,19 +42,29 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         "if (data.results.score.faction1 === data.results.score.faction2) winner = 'draw';"
         "return Functions.encodeString(winner);";
 
+    enum Faction {
+        Unknown,
+        Faction1,
+        Faction2,
+        Draw
+    }
+
     struct Bet {
         address wallet;
         string playerId; // kept as string (user-controlled, not used as key)
-        string faction; // "faction1", "faction2", or "draw"
+        Faction faction;
         uint256 amount;
     }
 
     struct MatchBet {
         Bet[] bets;
-        string winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
+        Faction winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
         bool resolved; // this is true when a victor has been set/the match has finished
+        bool claimed; // this is true when a match's bets have been paid out
         bytes32 requestId;
         uint256 requestTimestamp;
+        uint256 totalBetAmount;
+        uint256 totalFeesCollected;
     }
 
     mapping(bytes32 => MatchBet) public matchBets;
@@ -61,10 +76,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint64 private immutable I_SUBSCRIPTIONID;
     address private immutable I_LINKTOKEN;
 
+    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
-    event Claim(bytes32 indexed matchKey);
+    event MatchClaimed(bytes32 indexed matchKey);
 
     modifier moreThanZero(uint256 amount) {
         _moreThanZero(amount);
@@ -86,14 +102,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
-     * Compares the equality of 2 strings
-     * @param a The first string
-     * @param b The second string
+     * Converts a string to the faction enum
+     * @param factionStr The string that represents a faction
      */
-    function _compareStrings(string memory a, string memory b) internal view returns (bool) {
-        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
+    function _toFaction(string memory factionStr) internal pure returns (Faction) {
+        bytes32 hash = keccak256(bytes(factionStr));
+        if (hash == keccak256(bytes("faction1"))) return Faction.Faction1;
+        if (hash == keccak256(bytes("faction2"))) return Faction.Faction2;
+        if (hash == keccak256(bytes("draw"))) return Faction.Draw;
+        return Faction.Unknown;
     }
-
 
     constructor(
         address ethUsdPriceFeed,
@@ -113,27 +131,40 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Place Bet on an ongoing faceit match that you are a part of. This is where players pay their deposit fee so that we don't have to calculate fees during payout/resolution
      * @param matchIdStr The id of the match the player is betting on
      * @param playerId The id of the player who is placing the bet
-     * @param faction The faction of the player who is placing the bet
+     * @param factionStr The faction of the player who is placing the bet
      */
-    function deposit(string calldata matchIdStr, string calldata playerId, string calldata faction)
+    function deposit(string calldata matchIdStr, string calldata playerId, string calldata factionStr)
         external
         payable
         nonReentrant
-        moreThanZero(msg.value)
     {
-        bytes32 matchKey = _getMatchKey(matchIdStr);
+        if (msg.value < MIN_BET_AMOUNT) revert FragBoxBetting__BetTooSmall(msg.value);
 
+        bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (bytes(mb.winnerFaction).length != 0 || mb.resolved) {
+        if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
 
-        uint256 fee = (msg.value * DEPOSIT_FEE_PERCENTAGE) / PERCENTAGE_BASE;
-        uint256 depositAmount = msg.value - fee;
+        Faction faction = _toFaction(factionStr);
+        if (faction == Faction.Unknown) {
+            revert FragBoxBetting__InvalidFaction(factionStr);
+        }
+
+        // Calculate house fee and actual bet amount
+        uint256 fee = (msg.value * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
+        uint256 betAmount = msg.value - fee;
+
+        // Send fee to owner
         Address.sendValue(payable(owner()), fee);
 
-        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: depositAmount}));
+        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: faction, amount: betAmount}));
+
+        mb.totalBetAmount += betAmount;
+        mb.totalFeesCollected += fee;
+
+        emit BetPlaced(matchKey, msg.sender, betAmount, faction);
     }
 
     /**
@@ -142,21 +173,23 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function requestResolution(string calldata matchIdStr) external {
         bytes32 matchKey = _getMatchKey(matchIdStr);
-
         MatchBet storage mb = matchBets[matchKey];
 
-        if (bytes(mb.winnerFaction).length != 0 || mb.resolved) {
+        if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
         if (mb.bets.length == 0) {
             revert FragBoxBetting__NoBetsPlaced(matchKey);
+        }
+        if (mb.requestId != bytes32(0)) {
+            revert FragBoxBetting__AlreadyRequested(matchKey);
         }
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(SOURCE);
 
         string[] memory args = new string[](1);
-        args[0] = matchIdStr; // Chainlink Functions still expects string
+        args[0] = matchIdStr;
         req.setArgs(args);
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
@@ -177,17 +210,26 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
         bytes32 matchKey = requestToMatchKey[requestId];
 
+        MatchBet storage mb = matchBets[matchKey];
+        if (mb.requestId != requestId) {
+            revert FragBoxBetting__MatchNotResolved(matchKey);
+        }
+
         if (err.length > 0) {
             revert FragBoxBetting__FaceitAPIUnavailable();
         }
 
-        string memory winnerFaction = string(response);
+        string memory winnerStr = string(response);
+        Faction winnerFaction = _toFaction(winnerStr);
 
-        MatchBet storage mb = matchBets[matchKey];
+        if (winnerFaction == Faction.Unknown) {
+            revert FragBoxBetting__FaceitAPIUnavailable(); // Bad response from oracle
+        }
+
         mb.winnerFaction = winnerFaction;
         mb.resolved = true;
 
-        emit RequestFulfilled(requestId, winnerFaction);
+        emit RequestFulfilled(requestId, winnerStr);
     }
 
     /**
@@ -203,67 +245,84 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (!mb.resolved) {
             revert FragBoxBetting__MatchNotResolved(matchKey);
         }
+        if (mb.claimed) {
+            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
+        }
 
         uint256 totalWinningBet = 0;
-        uint256 totalLosingBet = 0;
-
-        // First pass: calculate totals
         uint256 betsLength = mb.bets.length;
+
+        // First pass: calculate total winning bets
         for (uint256 i = 0; i < betsLength; i++) {
-            Bet storage bet = mb.bets[i];
-            if (_compareStrings(bet.faction, mb.winnerFaction)) {
-                totalWinningBet += bet.amount;
-            } else {
-                totalLosingBet += bet.amount;
+            if (mb.bets[i].faction == mb.winnerFaction) {
+                totalWinningBet += mb.bets[i].amount;
             }
         }
 
-        uint256 totalPot = totalWinningBet + totalLosingBet;
-        if (totalPot == 0) return;
+        if (totalWinningBet == 0 || mb.totalBetAmount == 0) {
+            mb.claimed = true;
+            emit MatchClaimed(matchKey);
+            return;
+        }
 
-        // Second pass: pay winners their proportional share
+        uint256 totalPot = mb.totalBetAmount;
+
+        // Second pass: Distribute winnings proportionally
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
-            if (_compareStrings(bet.faction, mb.winnerFaction) && bet.amount > 0) {
+
+            if (bet.faction == mb.winnerFaction && bet.amount > 0) {
+                // Proportional payout: (my bet / total winning bets) * entire pot
                 uint256 payout = (bet.amount * totalPot) / totalWinningBet;
 
-                // Optional: protect against tiny rounding dust
                 if (payout > 0) {
                     Address.sendValue(payable(bet.wallet), payout);
                 }
 
-                bet.amount = 0; // prevent double claim
+                bet.amount = 0; // Prevent double payout for this bet
             }
         }
 
-        // Optional: clear the match data or mark fully claimed
-        // mb.resolved = false; // or delete matchBets[matchKey];
+        // Optional: delete the match data
+        // delete matchBets[matchKey];
 
-        emit Claim(matchKey);
+        mb.claimed = true;
+        emit MatchClaimed(matchKey);
     }
 
     /**
      * Refund any bets that haven't completed in 24 hours
      * @param matchIdStr The matchId to check the status of
      */
-    function emergencyRefund(string calldata matchIdStr) external {
+    function emergencyRefund(string calldata matchIdStr) external nonReentrant {
         bytes32 matchKey = _getMatchKey(matchIdStr);
-
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.resolved) {
+        if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
+        }
+        if (mb.requestTimestamp == 0) {
+            revert FragBoxBetting__MatchNotRequested();
         }
         if (block.timestamp <= mb.requestTimestamp + TIMEOUT_DURATION) {
             revert FragBoxBetting__TimeoutNotReached();
         }
 
         // Refund all bets
-        for (uint256 i = 0; i < mb.bets.length; i++) {
-            Address.sendValue(payable(mb.bets[i].wallet), mb.bets[i].amount);
-            mb.bets[i].amount = 0;
+        uint256 betsLength = mb.bets.length;
+        for (uint256 i = 0; i < betsLength; i++) {
+            Bet storage bet = mb.bets[i];
+            uint256 amount = bet.amount;
+
+            if (amount > 0) {
+                Address.sendValue(payable(bet.wallet), amount);
+                bet.amount = 0;
+            }
         }
+
         mb.resolved = true;
+        mb.claimed = true;
+
         emit EmergencyRefund(matchKey);
     }
 
