@@ -11,7 +11,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
-    error FragBoxBetting__NeedsMoreThanZero();
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
     error FragBoxBetting__MatchNotResolved(bytes32 matchKey);
     error FragBoxBetting__NoBetsPlaced(bytes32 matchKey);
@@ -22,6 +21,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__AlreadyRequested(bytes32 matchKey);
     error FragBoxBetting__InvalidFaction(string factionStr);
     error FragBoxBetting__FaceitAPIKeyNotSet();
+    error FragBoxBetting__MatchNotReady();
+    error FragBoxBetting__MatchNotFinished();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -35,55 +36,23 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
 
     // Called ONCE by backend — returns roster + initial status
-    string private constant ROSTER_SOURCE_TEMPLATE =
-        "const matchId = args[0];"
-        "const apiKey = args[1];"
-        "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
-        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }"
-        "});"
-        "if (res.error) throw Error('Faceit API error');"
-        "const data = res.data;"
-
-        "let f1 = '';"
-        "let f2 = '';"
-        "if (data.teams?.faction1?.roster) {"
-        "  f1 = data.teams.faction1.roster.map(p => p.player_id).join(',');"
-        "}"
-        "if (data.teams?.faction2?.roster) {"
-        "  f2 = data.teams.faction2.roster.map(p => p.player_id).join(',');"
-        "}"
-
-        "const status = data.status || 'UNKNOWN';"
-
-        "return Functions.encodeString(JSON.stringify({"
-        "  type: 'roster',"
-        "  f1: f1,"
-        "  f2: f2,"
-        "  status: status"
-        "}));";
+    string private constant ROSTER_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = args[1];"
+        "const res = await Functions.makeHttpRequest({" "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
+        "if (res.error) throw Error('Faceit API error');" "const data = res.data;" "let f1 = '';" "let f2 = '';"
+        "if (data.teams?.faction1?.roster) {" "  f1 = data.teams.faction1.roster.map(p => p.player_id).join(',');" "}"
+        "if (data.teams?.faction2?.roster) {" "  f2 = data.teams.faction2.roster.map(p => p.player_id).join(',');" "}"
+        "const status = data.status || 'UNKNOWN';" "return Functions.encodeString(JSON.stringify({" "  type: 'roster',"
+        "  f1: f1," "  f2: f2," "  status: status" "}));";
 
     // Called REPEATEDLY by backend — status + winner only
-    string private constant STATUS_SOURCE_TEMPLATE =
-        "const matchId = args[0];"
-        "const apiKey = args[1];"
-        "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
-        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }"
-        "});"
-        "if (res.error) throw Error('Faceit API error');"
-        "const data = res.data;"
-
-        "const status = data.status || 'UNKNOWN';"
-        "let winner = 'unknown';"
-        "if (status === 'FINISHED' && data.results && data.results.winner) {"
-        "  winner = data.results.winner;"
-        "}"
-
-        "return Functions.encodeString(JSON.stringify({"
-        "  type: 'status',"
-        "  status: status,"
-        "  winner: winner"
+    string private constant STATUS_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = args[1];"
+        "const res = await Functions.makeHttpRequest({" "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
+        "if (res.error) throw Error('Faceit API error');" "const data = res.data;"
+        "const status = data.status || 'UNKNOWN';" "let winner = 'unknown';"
+        "if (status === 'FINISHED' && data.results && data.results.winner) {" "  winner = data.results.winner;" "}"
+        "return Functions.encodeString(JSON.stringify({" "  type: 'status'," "  status: status," "  winner: winner"
         "}));";
 
     enum Faction {
@@ -106,10 +75,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bool resolved; // this is true when a victor has been set/the match has finished
         bool claimed; // this is true when a match's bets have been paid out
         bytes32 requestId;
-        uint256 requestTimestamp;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
         mapping(string => bool) isValidPlayer; // playerId => true if in roster
+
         bool rosterValidated; // Has the oracle successfully updated rosters?
         uint256 lastRosterUpdate; // timestamp of last successful update
 
@@ -136,17 +105,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, uint256 playerCount);
 
-    modifier moreThanZero(uint256 amount) {
-        _moreThanZero(amount);
-        _;
-    }
-
-    function _moreThanZero(uint256 amount) internal pure {
-        if (amount <= 0) {
-            revert FragBoxBetting__NeedsMoreThanZero();
-        }
-    }
-
     /**
      * Converts the match id string into a bytes object for gas savings
      * @param matchIdStr The match id string to convert
@@ -168,6 +126,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
+     * Compares the equality of 2 strings
+     * @param a The first string
+     * @param b The second string
+     */
+    function _compareStrings(string memory a, string memory b) internal pure returns (bool) {
+        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
+    }
+
+    /**
      * Lightweight JSON string extractor - perfect for small Chainlink Functions responses
      * @dev Only looks for "key":"value" pattern (no nested objects/arrays needed yet)
      * @param json The response body
@@ -183,7 +150,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 uint256 end = start;
                 while (end < data.length && data[end] != '"') end++;
                 bytes memory value = new bytes(end - start);
-                for (uint256 k = 0; k < value.length; k++) value[k] = data[start + k];
+                for (uint256 k = 0; k < value.length; k++) {
+                    value[k] = data[start + k];
+                }
                 return string(value);
             }
         }
@@ -203,10 +172,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes memory data = bytes(csv);
         uint256 start = 0;
         for (uint256 i = 0; i <= data.length; i++) {
-            if (i == data.length || data[i] == ',') {
+            if (i == data.length || data[i] == ",") {
                 if (i > start) {
                     bytes memory id = new bytes(i - start);
-                    for (uint256 j = 0; j < id.length; j++) id[j] = data[start + j];
+                    for (uint256 j = 0; j < id.length; j++) {
+                        id[j] = data[start + j];
+                    }
                     mb.isValidPlayer[string(id)] = true;
                 }
                 start = i + 1;
@@ -313,6 +284,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
+        if (!_compareStrings(mb.status, "READY")) {
+            revert FragBoxBetting__MatchNotReady();
+        }
+
         // Soft validation - only warn after roster has been fetched at least once
         if (mb.rosterValidated && !mb.isValidPlayer[playerId]) {
             // Option A: Revert (strict)
@@ -367,8 +342,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
             emit RosterUpdated(matchKey, bytes(f1Csv).length > 0 || bytes(f2Csv).length > 0 ? 1 : 0);
-        } 
-        else if (keccak256(bytes(responseType)) == keccak256(bytes("status"))) {
+        } else if (keccak256(bytes(responseType)) == keccak256(bytes("status"))) {
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
 
@@ -396,6 +370,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
         if (mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
+        }
+        if (!_compareStrings(mb.status, "FINISHED")) {
+            revert FragBoxBetting__MatchNotFinished();
         }
 
         uint256 totalWinningBet = 0;
@@ -450,10 +427,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
-        if (mb.requestTimestamp == 0) {
+        if (mb.lastStatusUpdate == 0) {
             revert FragBoxBetting__MatchNotRequested();
         }
-        if (block.timestamp <= mb.requestTimestamp + TIMEOUT_DURATION) {
+        if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
             revert FragBoxBetting__TimeoutNotReached();
         }
 

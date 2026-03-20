@@ -28,7 +28,7 @@ contract DeployFragBoxBetting is Script {
             new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
 
         fragBoxBetting.setFaceitApiKey(faceitApiKey);
-        
+
         vm.stopBroadcast();
         return fragBoxBetting;
     }

@@ -30,7 +30,9 @@ contract FragBoxBettingTest is Test {
     }
 
     function testPlaceBet() public {
-        vm.prank(USER);
+        vm.startPrank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__MatchNotReady.selector);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, FACTION);
+        vm.stopPrank();
     }
 }
