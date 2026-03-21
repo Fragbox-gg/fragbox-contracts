@@ -87,8 +87,23 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 lastStatusUpdate;
     }
 
-    mapping(bytes32 => MatchBet) public matchBets;
-    mapping(bytes32 => bytes32) public requestToMatchKey; // requestId => matchKey (bytes32)
+    /* ---------- VIEW STRUCT (no mapping -> can be returned in memory) ---------- */
+    struct MatchBetView {
+        Bet[] bets;
+        Faction winnerFaction;
+        bool resolved;
+        bool claimed;
+        bytes32 requestId;
+        uint256 totalBetAmount;
+        uint256 totalFeesCollected;
+        bool rosterValidated;
+        uint256 lastRosterUpdate;
+        string status;
+        uint256 lastStatusUpdate;
+    }
+
+    mapping(bytes32 => MatchBet) private matchBets;
+    mapping(bytes32 => bytes32) private requestToMatchKey; // requestId => matchKey (bytes32)
 
     string private faceitApiKey;
 
@@ -139,6 +154,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @dev Only looks for "key":"value" pattern (no nested objects/arrays needed yet)
      * @param json The response body
      * @param key The value you're looking for
+     * @return The value associated with the key inside of the json
      */
     function _getJsonValue(string memory json, string memory key) internal pure returns (string memory) {
         bytes memory data = bytes(json);
@@ -159,6 +175,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return "";
     }
 
+    /**
+     * @notice Compares a slice of `a` starting at `offset` with the full contents of `b` for exact byte equality.
+     * @dev Behaves like a lightweight `memcmp` on a subarray. Returns `false` immediately if the slice would
+     *      overrun `a`. Pure function – no state reads/writes.
+     * @param a The source byte array to read from
+     * @param offset Zero-based index in `a` where the comparison should begin
+     * @param b The byte array to compare against (its full length is used)
+     * @return bool `true` if every byte matches and the slice fits inside `a`; otherwise `false`
+     */
     function _memcmp(bytes memory a, uint256 offset, bytes memory b) internal pure returns (bool) {
         if (a.length < offset + b.length) return false;
         for (uint256 i = 0; i < b.length; i++) {
@@ -167,6 +192,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return true;
     }
 
+    /**
+     * @notice Parses a comma-separated list of player IDs and registers each one with the given `faction` in the `MatchBet` storage struct (only if the player was previously `Unknown`).
+     * @dev Simple CSV splitter – no quoting, escaping, or whitespace trimming. Duplicates within the same CSV or players already assigned a faction are silently ignored. Modifies storage in-place.
+     * @param mb The `MatchBet` storage reference to update
+     * @param csv Comma-separated string of player IDs (e.g. "player1,player2,player3")
+     * @param faction The `Faction` to assign to newly-registered players
+     * @return The number of players that were actually added (i.e. had their faction changed)
+     */
     function _addPlayersFromCsv(MatchBet storage mb, string memory csv, Faction faction) internal returns (uint256) {
         if (bytes(csv).length == 0) return 0;
 
@@ -193,6 +226,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return count;
     }
 
+    /**
+     * Refunds bets that have invalid parameters, such as a player not belonging to the correct faction based on the data from the faceit API
+     * @param mb The match bet to clean
+     */
     function _cleanInvalidBets(MatchBet storage mb) internal {
         uint256 len = mb.bets.length;
         for (uint256 i = 0; i < len; i++) {
@@ -502,13 +539,76 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         emit EmergencyRefund(matchKey);
     }
 
+    /* -------------------------------------------------------------------------- */
+    /*                                   GETTERS                                  */
+    /* -------------------------------------------------------------------------- */
+
+    /**
+     * Gets the price of ETH in USD
+     * @return The price of ETH
+     */
+    function getEthUsdPrice() public view returns (int256) {
+        (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
+        return price;
+    }
+
     /**
      * Converts an amount of ETH to its equivalent $ amount using chainlink price feed oracles
      * @param amount The amount of ETH in wei
      * @return uint256 The $ amount equivalent of input parameter amount
      */
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
-        (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
-        return (SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
+        return (SafeCast.toUint256(getEthUsdPrice()) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
+    }
+
+    /**
+     * Converts the match id string into a bytes object for gas savings
+     * @param matchIdStr The match id string to convert
+     * @return The match key
+     */
+    function getMatchKey(string memory matchIdStr) external pure returns (bytes32) {
+        return keccak256(bytes(matchIdStr));
+    }
+
+    /**
+     * Returns all non-mapping data for a match in one clean struct
+     * @param matchKey The match id to get data for
+     * @return A MatchBetView struct which contains everything in MatchBet without the mappings
+     */
+    function getMatchBet(bytes32 matchKey) external view returns (MatchBetView memory) {
+        MatchBet storage mb = matchBets[matchKey];
+        return MatchBetView({
+            bets: mb.bets,
+            winnerFaction: mb.winnerFaction,
+            resolved: mb.resolved,
+            claimed: mb.claimed,
+            requestId: mb.requestId,
+            totalBetAmount: mb.totalBetAmount,
+            totalFeesCollected: mb.totalFeesCollected,
+            rosterValidated: mb.rosterValidated,
+            lastRosterUpdate: mb.lastRosterUpdate,
+            status: mb.status,
+            lastStatusUpdate: mb.lastStatusUpdate
+        });
+    }
+
+    /**
+     * This lets you access a player's faction based on a match bet's mapping
+     * @param matchKey The match the player is in
+     * @param playerId The player to get the faction of
+     */
+    function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
+        return matchBets[matchKey].playerToFaction[playerId];
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                           TODO REMOVE THESE LATER                          */
+    /* -------------------------------------------------------------------------- */
+    function exposedGetJsonValue(string memory json, string memory key) public pure returns (string memory) {
+        return _getJsonValue(json, key);
+    }
+
+    function testFulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) public {
+        fulfillRequest(requestId, response, err);
     }
 }
