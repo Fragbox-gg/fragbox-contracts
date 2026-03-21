@@ -1,0 +1,159 @@
+{
+    "match_id": "1-a536dd90-4df3-42df-be6e-d158177fdef2",
+    "version": 2,
+    "game": "cs2",
+    "region": "NA",
+    "competition_id": "3aced33b-f21c-450c-91d5-10535164e0ab",
+    "competition_type": "matchmaking",
+    "competition_name": "North America 5V5 Queue",
+    "organizer_id": "faceit",
+    "teams": {
+        "faction2": {
+            "faction_id": "0a3fe9a7-b60f-4746-b30d-57bea3414077",
+            "leader": "0a3fe9a7-b60f-4746-b30d-57bea3414077",
+            "avatar": "https://distribution.faceit-cdn.net/images/69e8f2b4-de04-4f6b-89d0-6b94bc0cebe5.jpg",
+            "roster": [
+                {
+                    "player_id": "0a3fe9a7-b60f-4746-b30d-57bea3414077",
+                    "nickname": "Ziphh",
+                    "avatar": "https://distribution.faceit-cdn.net/images/69e8f2b4-de04-4f6b-89d0-6b94bc0cebe5.jpg",
+                    "membership": "free",
+                    "game_player_id": "76561199092665981",
+                    "game_player_name": "Ziph",
+                    "game_skill_level": 6,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "92f1450e-182b-41db-8f31-53079df20c73",
+                    "nickname": "Monstro_",
+                    "avatar": "https://distribution.faceit-cdn.net/images/7377aca7-ac99-46bb-ada3-ff1c508d9caa.jpg",
+                    "membership": "free",
+                    "game_player_id": "76561198202499356",
+                    "game_player_name": "△∴Jülž∴△",
+                    "game_skill_level": 4,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "9ed84901-333f-49c4-a574-7b99fb4513c4",
+                    "nickname": "vlunti",
+                    "avatar": "https://distribution.faceit-cdn.net/images/201b7037-a00f-4c0e-94b9-288c11d693a4.jpg",
+                    "membership": "free",
+                    "game_player_id": "76561198853010609",
+                    "game_player_name": "dork",
+                    "game_skill_level": 5,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "9054f35b-0b01-43fb-8e96-68373be8aed5",
+                    "nickname": "HansenShuai",
+                    "avatar": "",
+                    "membership": "free",
+                    "game_player_id": "76561198778151094",
+                    "game_player_name": "jinghanx41",
+                    "game_skill_level": 6,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "eae78ccf-7f01-4a41-809a-76594f5c8735",
+                    "nickname": "Mmakku3",
+                    "avatar": "https://distribution.faceit-cdn.net/images/1b3b8954-47a4-4154-8d41-a5ad4df5b706.jpg",
+                    "membership": "free",
+                    "game_player_id": "76561199661142911",
+                    "game_player_name": "ZYWOO",
+                    "game_skill_level": 2,
+                    "anticheat_required": true
+                }
+            ],
+            "stats": {
+                "winProbability": 0.5,
+                "skillLevel": {
+                    "average": 5,
+                    "range": {
+                        "min": 2,
+                        "max": 6
+                    }
+                },
+                "rating": 1021
+            },
+            "substituted": false,
+            "name": "team_Ziphh",
+            "type": ""
+        },
+        "faction1": {
+            "faction_id": "541d15c2-e699-4c99-a706-ddedcd6aac62",
+            "leader": "541d15c2-e699-4c99-a706-ddedcd6aac62",
+            "avatar": "https://distribution.faceit-cdn.net/images/dbd1574f-f8c8-46b0-a9c2-377ba2ac6ae3.jpeg",
+            "roster": [
+                {
+                    "player_id": "541d15c2-e699-4c99-a706-ddedcd6aac62",
+                    "nickname": "WuTube",
+                    "avatar": "https://distribution.faceit-cdn.net/images/dbd1574f-f8c8-46b0-a9c2-377ba2ac6ae3.jpeg",
+                    "membership": "free",
+                    "game_player_id": "76561199207350049",
+                    "game_player_name": "feath3r",
+                    "game_skill_level": 6,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "94f98244-169d-478a-a5dd-21dde2e649ca",
+                    "nickname": "benjiboii",
+                    "avatar": "",
+                    "membership": "free",
+                    "game_player_id": "76561198811834368",
+                    "game_player_name": "Barber",
+                    "game_skill_level": 2,
+                    "anticheat_required": false
+                },
+                {
+                    "player_id": "5295e6a8-b817-4d38-bbcf-f2c7b56bd472",
+                    "nickname": "fvamds",
+                    "avatar": "https://distribution.faceit-cdn.net/images/a1f29294-7394-4073-b1ac-45604eb5d733.jpeg",
+                    "membership": "free",
+                    "game_player_id": "76561198862679245",
+                    "game_player_name": "timmy",
+                    "game_skill_level": 6,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "5234c0d7-19f6-49f3-80b5-c427470f60b6",
+                    "nickname": "NivlaNait",
+                    "avatar": "",
+                    "membership": "free",
+                    "game_player_id": "76561198195666533",
+                    "game_player_name": "雪花飘飘",
+                    "game_skill_level": 5,
+                    "anticheat_required": true
+                },
+                {
+                    "player_id": "ecf00c3a-68a4-44d7-a212-2ff2ca0fb4fe",
+                    "nickname": "nilezz",
+                    "avatar": "https://distribution.faceit-cdn.net/images/5f46a94b-408d-424e-a801-beccead5de62.jpg",
+                    "membership": "free",
+                    "game_player_id": "76561199123271493",
+                    "game_player_name": "nilez",
+                    "game_skill_level": 5,
+                    "anticheat_required": true
+                }
+            ],
+            "stats": {
+                "winProbability": 0.5,
+                "skillLevel": {
+                    "average": 5,
+                    "range": {
+                        "min": 2,
+                        "max": 6
+                    }
+                },
+                "rating": 1029
+            },
+            "substituted": false,
+            "name": "team_WuTube",
+            "type": ""
+        }
+    },
+    "calculate_elo": true,
+    "chat_room_id": "match-1-a536dd90-4df3-42df-be6e-d158177fdef2",
+    "best_of": 1,
+    "status": "VOTING",
+    "faceit_url": "https://www.faceit.com/{lang}/cs2/room/1-a536dd90-4df3-42df-be6e-d158177fdef2"
+}
