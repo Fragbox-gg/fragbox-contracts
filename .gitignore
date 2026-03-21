@@ -25,3 +25,9 @@ states/
 # Debug info
 *.dbg.json
 *.tsbuildinfo
+
+broadcast/
+lib/
+
+.DS_Store
+zkout/
