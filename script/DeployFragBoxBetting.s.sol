@@ -19,8 +19,6 @@ contract DeployFragBoxBetting is Script {
             address linkToken
         ) = helperConfig.activeNetworkConfig();
 
-        string memory faceitApiKey = vm.envOr("FACEIT_CLIENT_API_KEY", string("dummy-api-key"));
-
         IFunctionsSubscriptions functionsSubscriptions = IFunctionsSubscriptions(chainLinkFunctionsRouter);
         IFunctionsSubscriptions.Subscription memory sub = functionsSubscriptions.getSubscription(subscriptionId);
 
@@ -29,7 +27,7 @@ contract DeployFragBoxBetting is Script {
         FragBoxBetting fragBoxBetting =
             new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
 
-        fragBoxBetting.setFaceitApiKey(faceitApiKey);
+        fragBoxBetting.updateDonSecrets(0, 1);
 
         functionsSubscriptions.addConsumer(subscriptionId, address(fragBoxBetting));
 
