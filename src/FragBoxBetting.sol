@@ -79,8 +79,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes32 requestId;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
-        mapping(string => bool) isValidPlayer; // playerId => true if in roster
 
+        mapping(string => Faction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
         bool rosterValidated; // Has the oracle successfully updated rosters?
         uint256 lastRosterUpdate; // timestamp of last successful update
 
@@ -168,7 +168,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return true;
     }
 
-    function _addPlayersFromCsv(MatchBet storage mb, string memory csv) internal returns (uint256) {
+    function _addPlayersFromCsv(MatchBet storage mb, string memory csv, Faction faction) internal returns (uint256) {
         if (bytes(csv).length == 0) return 0;
 
         uint256 count = 0;
@@ -183,8 +183,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                         id[j] = data[start + j];
                     }
                     string memory playerId = string(id);
-                    if (!mb.isValidPlayer[playerId]) {
-                        mb.isValidPlayer[playerId] = true;
+                    if (mb.playerToFaction[playerId] == Faction.Unknown) {
+                        mb.playerToFaction[playerId] = faction;
                         count++;
                     }
                 }
@@ -192,6 +192,19 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             }
         }
         return count;
+    }
+
+    function _cleanInvalidBets(MatchBet storage mb) internal {
+        uint256 len = mb.bets.length;
+        for (uint256 i = 0; i < len; i++) {
+            Bet storage bet = mb.bets[i];
+            if (bet.amount > 0) {
+                Faction correct = mb.playerToFaction[bet.playerId];
+                if (correct == Faction.Unknown || correct != bet.faction) {
+                    bet.amount = 0; // ignored forever in claim/refund
+                }
+            }
+        }
     }
 
     constructor(
@@ -297,9 +310,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__MatchNotReady();
         }
 
-        // Hard validation - only revert after roster has been fetched at least once
-        if (mb.rosterValidated && !mb.isValidPlayer[playerId]) {
-            revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
+        // Hard validation - only revert after roster has been fetched at least once (covers both "not present" and "wrong faction")
+        if (mb.rosterValidated) {
+            Faction actual = mb.playerToFaction[playerId];
+            if (actual == Faction.Unknown || actual != chosenFaction) {
+                revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
+            }
         }
 
         // Calculate house fee and actual bet amount
@@ -365,6 +381,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (_compareStrings(responseType, "roster")) {
             uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv);
             playersAdded += _addPlayersFromCsv(mb, f2Csv);
+
+            _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
 
             mb.rosterValidated = true;
             mb.status = status;
