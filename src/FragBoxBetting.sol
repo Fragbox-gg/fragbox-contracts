@@ -14,7 +14,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
     error FragBoxBetting__MatchNotResolved(bytes32 matchKey);
     error FragBoxBetting__NoBetsPlaced(bytes32 matchKey);
-    error FragBoxBetting__FaceitAPIUnavailable();
     error FragBoxBetting__TimeoutNotReached();
     error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall(uint256 amount);
@@ -364,11 +363,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         // Request ownership validation (prevents cross-match corruption)
         if (mb.requestId != requestId) {
-            revert FragBoxBetting__InvalidRequest(requestId);
+            emit RequestFulfilled(requestId, matchKey, "ERROR", "Invalid Request Id");
+            return;
         }
 
         if (err.length > 0) {
-            revert FragBoxBetting__FaceitAPIUnavailable();
+            emit RequestFulfilled(requestId, matchKey, "ERROR", string(err));
+            return;
         }
 
         string memory json = string(response);
