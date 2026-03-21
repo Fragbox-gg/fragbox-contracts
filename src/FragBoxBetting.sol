@@ -379,8 +379,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         string memory f2Csv = _getJsonValue(json, "f2");
 
         if (_compareStrings(responseType, "roster")) {
-            uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv);
-            playersAdded += _addPlayersFromCsv(mb, f2Csv);
+            uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv, Faction.Faction1);
+            playersAdded += _addPlayersFromCsv(mb, f2Csv, Faction.Faction2);
 
             _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
 
