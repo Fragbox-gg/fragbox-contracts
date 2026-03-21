@@ -16,7 +16,7 @@ contract DeployFragBoxBetting is Script {
             address linkToken
         ) = helperConfig.activeNetworkConfig();
 
-        string memory faceitApiKey = vm.envString("FACEIT_CLIENT_API_KEY");
+        string memory faceitApiKey = vm.envOr("FACEIT_CLIENT_API_KEY", string("dummy-api-key"));
 
         vm.startBroadcast();
 
