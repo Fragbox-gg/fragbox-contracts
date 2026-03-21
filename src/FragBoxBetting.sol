@@ -201,6 +201,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             if (bet.amount > 0) {
                 Faction correct = mb.playerToFaction[bet.playerId];
                 if (correct == Faction.Unknown || correct != bet.faction) {
+                    Address.sendValue(payable(owner()), bet.amount);
                     bet.amount = 0; // ignored forever in claim/refund
                 }
             }
