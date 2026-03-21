@@ -18,10 +18,6 @@ contract DeployFragBoxBetting is Script {
 
         string memory faceitApiKey = vm.envString("FACEIT_CLIENT_API_KEY");
 
-        if (bytes(faceitApiKey).length == 0) {
-            revert("FACEIT_CLIENT_API_KEY not set in .env");
-        }
-
         vm.startBroadcast();
 
         FragBoxBetting fragBoxBetting =
