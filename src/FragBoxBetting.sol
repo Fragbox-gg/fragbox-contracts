@@ -23,6 +23,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__FaceitAPIKeyNotSet();
     error FragBoxBetting__MatchNotReady();
     error FragBoxBetting__MatchNotFinished();
+    error FragBoxBetting__InvalidRequest(bytes32 requestId);
+    error FragBoxBetting__PlayerNotInMatch(string matchId, string playerId);
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -98,7 +100,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     address private immutable I_LINKTOKEN;
 
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction, string playerId);
-    event InvalidPlayerBet(bytes32 indexed matchKey, address indexed better, string playerId, Faction faction);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
@@ -167,22 +168,28 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         return true;
     }
 
-    function _addPlayersFromCsv(MatchBet storage mb, string memory csv) internal {
-        if (bytes(csv).length == 0) return;
+    function _addPlayersFromCsv(MatchBet storage mb, string memory csv) internal returns (uint256) {
+        if (bytes(csv).length == 0) return 0;
+
+        uint256 count = 0;
         bytes memory data = bytes(csv);
         uint256 start = 0;
+
         for (uint256 i = 0; i <= data.length; i++) {
-            if (i == data.length || data[i] == ",") {
+            if (i == data.length || data[i] == ',') {
                 if (i > start) {
                     bytes memory id = new bytes(i - start);
-                    for (uint256 j = 0; j < id.length; j++) {
-                        id[j] = data[start + j];
+                    for (uint256 j = 0; j < id.length; j++) id[j] = data[start + j];
+                    string memory playerId = string(id);
+                    if (!mb.isValidPlayer[playerId]) {
+                        mb.isValidPlayer[playerId] = true;
+                        count++;
                     }
-                    mb.isValidPlayer[string(id)] = true;
                 }
                 start = i + 1;
             }
         }
+        return count;
     }
 
     constructor(
@@ -288,13 +295,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__MatchNotReady();
         }
 
-        // Soft validation - only warn after roster has been fetched at least once
+        // Hard validation - only revert after roster has been fetched at least once
         if (mb.rosterValidated && !mb.isValidPlayer[playerId]) {
-            // Option A: Revert (strict)
-            // revert FragBoxBetting__PlayerNotInMatch();
-
-            // Option B: Allow but emit event (recommended for UX)
-            emit InvalidPlayerBet(matchKey, msg.sender, playerId, chosenFaction);
+            revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
         }
 
         // Calculate house fee and actual bet amount
@@ -304,7 +307,31 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         // Send fee to owner
         Address.sendValue(payable(owner()), fee);
 
-        mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: chosenFaction, amount: betAmount}));
+        // Check for existing bet with SAME WALLET + SAME PLAYER + SAME FACTION ===
+        // If found, just increase the amount (top-up). Otherwise push a new Bet entry.
+        bool betExists = false;
+        uint256 betsLength = mb.bets.length;
+        for (uint256 i = 0; i < betsLength; i++) {
+            Bet storage bet = mb.bets[i];
+            if (bet.wallet == msg.sender &&
+                _compareStrings(bet.playerId, playerId) &&   // use your existing helper for string comparison
+                bet.faction == chosenFaction) {
+                bet.amount += betAmount;
+                betExists = true;
+                break;
+            }
+        }
+
+        if (!betExists) {
+            mb.bets.push(
+                Bet({
+                    wallet: msg.sender,
+                    playerId: playerId,
+                    faction: chosenFaction,
+                    amount: betAmount
+                })
+            );
+        }
 
         mb.totalBetAmount += betAmount;
         mb.totalFeesCollected += fee;
@@ -322,6 +349,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes32 matchKey = requestToMatchKey[requestId];
         MatchBet storage mb = matchBets[matchKey];
 
+        // Request ownership validation (prevents cross-match corruption)
+        if (mb.requestId != requestId) {
+            revert FragBoxBetting__InvalidRequest(requestId);
+        }
+
         if (err.length > 0) {
             revert FragBoxBetting__FaceitAPIUnavailable();
         }
@@ -334,19 +366,22 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         string memory f1Csv = _getJsonValue(json, "f1");
         string memory f2Csv = _getJsonValue(json, "f2");
 
-        if (keccak256(bytes(responseType)) == keccak256(bytes("roster"))) {
-            _addPlayersFromCsv(mb, f1Csv);
-            _addPlayersFromCsv(mb, f2Csv);
+        if (_compareStrings(responseType, "roster")) {
+            uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv);
+            playersAdded += _addPlayersFromCsv(mb, f2Csv);
 
             mb.rosterValidated = true;
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
-            emit RosterUpdated(matchKey, bytes(f1Csv).length > 0 || bytes(f2Csv).length > 0 ? 1 : 0);
-        } else if (keccak256(bytes(responseType)) == keccak256(bytes("status"))) {
+            mb.lastStatusUpdate = block.timestamp;
+
+            emit RosterUpdated(matchKey, playersAdded);
+        } 
+        else if (_compareStrings(responseType, "status")) {
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
 
-            if (keccak256(bytes(status)) == keccak256(bytes("FINISHED"))) {
+            if (_compareStrings(status, "FINISHED")) {
                 mb.winnerFaction = _toFaction(winner);
                 mb.resolved = true;
             }
