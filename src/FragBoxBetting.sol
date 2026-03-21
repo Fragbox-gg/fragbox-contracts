@@ -176,10 +176,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 start = 0;
 
         for (uint256 i = 0; i <= data.length; i++) {
-            if (i == data.length || data[i] == ',') {
+            if (i == data.length || data[i] == ",") {
                 if (i > start) {
                     bytes memory id = new bytes(i - start);
-                    for (uint256 j = 0; j < id.length; j++) id[j] = data[start + j];
+                    for (uint256 j = 0; j < id.length; j++) {
+                        id[j] = data[start + j];
+                    }
                     string memory playerId = string(id);
                     if (!mb.isValidPlayer[playerId]) {
                         mb.isValidPlayer[playerId] = true;
@@ -313,9 +315,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 betsLength = mb.bets.length;
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
-            if (bet.wallet == msg.sender &&
-                _compareStrings(bet.playerId, playerId) &&   // use your existing helper for string comparison
-                bet.faction == chosenFaction) {
+            if (
+                bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId) // use your existing helper for string comparison
+                    && bet.faction == chosenFaction
+            ) {
                 bet.amount += betAmount;
                 betExists = true;
                 break;
@@ -323,14 +326,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
 
         if (!betExists) {
-            mb.bets.push(
-                Bet({
-                    wallet: msg.sender,
-                    playerId: playerId,
-                    faction: chosenFaction,
-                    amount: betAmount
-                })
-            );
+            mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: chosenFaction, amount: betAmount}));
         }
 
         mb.totalBetAmount += betAmount;
@@ -376,8 +372,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             mb.lastStatusUpdate = block.timestamp;
 
             emit RosterUpdated(matchKey, playersAdded);
-        } 
-        else if (_compareStrings(responseType, "status")) {
+        } else if (_compareStrings(responseType, "status")) {
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
 
