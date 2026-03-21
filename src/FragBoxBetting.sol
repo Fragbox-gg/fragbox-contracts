@@ -234,7 +234,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Called ONCE by backend to fetch and store player rosters
      * @param matchIdStr The match Id to check
      */
-    function updateMatchRoster(string calldata matchIdStr) external {
+    function updateMatchRoster(string calldata matchIdStr) external onlyOwner {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -260,7 +260,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Called REPEATEDLY by backend to update match status
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external {
+    function updateMatchStatus(string calldata matchIdStr) external onlyOwner {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
