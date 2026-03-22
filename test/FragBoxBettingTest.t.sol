@@ -373,10 +373,6 @@ contract FragBoxBettingTest is Test {
     }
 
     function testInvalidBetGetsCleanedAndRefundedViaWithdraw() public {
-        uint256 startingBalance = USER.balance;
-        console.log("Starting balance");
-        console.log(startingBalance);
-
         // 1. Deposit invalid bet (wrong faction)
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, INCORRECT_FACTION);
@@ -393,11 +389,7 @@ contract FragBoxBettingTest is Test {
         // 3. Player can now withdraw the refunded amount
         vm.startPrank(USER);
         uint256 balBefore = USER.balance;
-        console.log("Bal before");
-        console.log(balBefore);
         fragBoxBetting.withdraw(PLAYERID);
-        console.log("Bal after");
-        console.log(USER.balance);
         assertEq(USER.balance, balBefore);
         vm.stopPrank();
     }
