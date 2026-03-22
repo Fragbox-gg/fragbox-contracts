@@ -275,7 +275,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.rosterValidated) revert FragBoxBetting__AlreadyRequested(matchKey);
-        if (donHostedSecretsSlotId == 0) revert FragBoxBetting__SecretsNotSet();
+        if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(ROSTER_SOURCE_TEMPLATE);
@@ -302,7 +302,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.resolved || mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
-        if (donHostedSecretsSlotId == 0) revert FragBoxBetting__SecretsNotSet();
+        if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(STATUS_SOURCE_TEMPLATE);
