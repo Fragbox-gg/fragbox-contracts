@@ -13,7 +13,7 @@ contract FragBoxBettingTest is Test {
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
 
-    string constant MATCHID = "1-d031ff3b-8654-4922-9f90-0bc538e3d6e4";
+    string constant MATCHID = "1-a536dd90-4df3-42df-be6e-d158177fdef2";
     string constant WINNING_PLAYERID = "94f98244-169d-478a-a5dd-21dde2e649ca";
     string constant WINNING_FACTION = "faction1";
     FragBoxBetting.Faction constant WINNING_FACTION_ENUM = FragBoxBetting.Faction.Faction1;
@@ -27,16 +27,10 @@ contract FragBoxBettingTest is Test {
     // These are NOT the raw Faceit JSON files you loaded below.
     // They are the tiny {type, f1, f2, status} or {type, status, winner} objects
     // that your ROSTER_SOURCE_TEMPLATE / STATUS_SOURCE_TEMPLATE actually return.
-    string constant PROCESSED_ROSTER_READY =
-        '{"type":"roster","playerId":"94f98244-169d-478a-a5dd-21dde2e649ca","faction":1,"valid":true,"status":"READY"}';
-    string constant PROCESSED_STATUS_VOTING = '{"type":"status","status":"VOTING","winner":"unknown"}';
-    string constant PROCESSED_STATUS_ONGOING = '{"type":"status","status":"ONGOING","winner":"unknown"}';
-    string constant PROCESSED_STATUS_FINISHED = '{"type":"status","status":"FINISHED","winner":"faction1"}';
-
-    string matchReadyJson;
-    string matchOngoingJson;
-    string matchFinishedJson;
-    string matchVotingJson;
+    string private PROCESSED_ROSTER_READY;
+    string private PROCESSED_STATUS_VOTING;
+    string private PROCESSED_STATUS_ONGOING;
+    string private PROCESSED_STATUS_FINISHED;
 
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, FragBoxBetting.Faction playerFaction);
@@ -47,10 +41,20 @@ contract FragBoxBettingTest is Test {
         (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
         vm.deal(USER, STARTING_BALANCE);
 
-        matchReadyJson = vm.readFile("test/faceitApiResponseBodyExamples/matchReady.json");
-        matchOngoingJson = vm.readFile("test/faceitApiResponseBodyExamples/matchOngoing.json");
-        matchFinishedJson = vm.readFile("test/faceitApiResponseBodyExamples/matchFinished.json");
-        matchVotingJson = vm.readFile("test/faceitApiResponseBodyExamples/matchVoting.json");
+        string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
+
+        if (keccak256(bytes(mode)) == keccak256(bytes("offline"))) {
+            PROCESSED_ROSTER_READY = _getProcessedResponse("matchReady.json", WINNING_PLAYERID);
+            PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
+            PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
+            PROCESSED_STATUS_FINISHED = _getProcessedResponse("matchFinished.json", "");
+        }
+        else {
+            PROCESSED_ROSTER_READY = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
+            PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
+            PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
+            PROCESSED_STATUS_FINISHED = _getProcessedResponse(MATCHID, "");
+        }
     }
 
     /* -------------------------------------------------------------------------- */
@@ -236,10 +240,89 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.handleOracleFulfillment(requestId, jsonResponse, err);
     }
 
+    /// @notice Runs your exact JS (offline or real)
+    function _getProcessedResponse(
+        string memory arg1,      // json filename OR real matchId
+        string memory arg2       // playerId (use "" for status-only calls)
+    ) internal returns (string memory) {
+        string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
+        string memory apiKey = vm.envOr("FACEIT_CLIENT_API_KEY", string(""));
+
+        string[] memory cmds = new string[](3);
+        cmds[0] = "sh";
+        cmds[1] = "-c";
+        cmds[2] = string.concat(
+            'node verify-faceit-functions.js ',
+            mode,
+            ' "',
+            arg1,
+            '" --api-key=',
+            apiKey,
+            ' "',
+            arg2,
+            '" --silent 2>/dev/null'
+        );
+
+        bytes memory rawOutput = vm.ffi(cmds);
+
+        // Trim trailing newline (if any)
+        if (rawOutput.length > 0 && rawOutput[rawOutput.length - 1] == 0x0a) {
+            assembly {
+                mstore(rawOutput, sub(mload(rawOutput), 1))
+            }
+        }
+
+        string memory response = string(rawOutput);
+        response = _stripSecpWarning(response);
+        return response;
+    }
+
+    /// @notice Strips the exact secp256k1 warning if it sneaks into the JS output
+    function _stripSecpWarning(string memory input) internal pure returns (string memory) {
+        bytes memory b = bytes(input);
+        bytes memory warning = bytes("secp256k1 unavailable, reverting to browser version");
+
+        if (b.length < warning.length) {
+            return input;
+        }
+
+        // Manual prefix check (pure memory bytes — no slicing)
+        bool hasWarning = true;
+        for (uint256 i = 0; i < warning.length; i++) {
+            if (b[i] != warning[i]) {
+                hasWarning = false;
+                break;
+            }
+        }
+
+        if (!hasWarning) {
+            return input;
+        }
+
+        // Skip warning + optional trailing newline
+        uint256 start = warning.length;
+        if (start < b.length && b[start] == 0x0a) {
+            start++;
+        }
+
+        // Build clean result
+        bytes memory result = new bytes(b.length - start);
+        for (uint256 i = 0; i < result.length; i++) {
+            result[i] = b[start + i];
+        }
+
+        return string(result);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                                DEPOSIT TESTS                               */
     /* -------------------------------------------------------------------------- */
     function testPlaceBetWithNoBalance() public {
+        console.log(PROCESSED_ROSTER_READY);
+        console.log(PROCESSED_STATUS_VOTING);
+        console.log(PROCESSED_STATUS_ONGOING);
+        console.log(PROCESSED_STATUS_FINISHED);
+
         vm.startPrank(USER);
         vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, 0));
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
