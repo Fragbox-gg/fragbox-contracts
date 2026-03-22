@@ -238,7 +238,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint64 subscriptionId,
         string memory getRoster,
         string memory getStatus
-
     ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
         I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
         I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;

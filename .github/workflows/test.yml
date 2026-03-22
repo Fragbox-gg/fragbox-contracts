@@ -34,5 +34,7 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes
 
-      - name: Run Forge tests
-        run: forge test -vvv
+      - name: Run Forge Tests (with Base Sepolia fork)
+        env:
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+        run: forge test --fork-url $BASE_SEPOLIA_RPC_URL -vvv
