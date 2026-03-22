@@ -383,7 +383,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
-        if (!_compareStrings(mb.status, "READY")) {
+        if (!_compareStrings(mb.status, "READY") && !_compareStrings(mb.status, "VOTING")) {
             revert FragBoxBetting__MatchNotReady();
         }
 
@@ -498,6 +498,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
+            revert FragBoxBetting__MatchNotRequested();
+        }
         if (!_compareStrings(mb.status, "FINISHED")) {
             revert FragBoxBetting__MatchNotFinished();
         }
@@ -554,7 +557,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
-        if (mb.lastStatusUpdate == 0) {
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
             revert FragBoxBetting__MatchNotRequested();
         }
         if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
