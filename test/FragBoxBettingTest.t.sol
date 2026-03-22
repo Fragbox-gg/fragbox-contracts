@@ -27,7 +27,8 @@ contract FragBoxBettingTest is Test {
     // These are NOT the raw Faceit JSON files you loaded below.
     // They are the tiny {type, f1, f2, status} or {type, status, winner} objects
     // that your ROSTER_SOURCE_TEMPLATE / STATUS_SOURCE_TEMPLATE actually return.
-    string private PROCESSED_ROSTER_READY;
+    string private PROCESSED_ROSTER_READY_WINNING_PLAYER;
+    string private PROCESSED_ROSTER_READY_LOSING_PLAYER;
     string private PROCESSED_STATUS_VOTING;
     string private PROCESSED_STATUS_ONGOING;
     string private PROCESSED_STATUS_FINISHED;
@@ -44,12 +45,14 @@ contract FragBoxBettingTest is Test {
         string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
 
         if (keccak256(bytes(mode)) == keccak256(bytes("offline"))) {
-            PROCESSED_ROSTER_READY = _getProcessedResponse("matchReady.json", WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse("matchReady.json", WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse("matchReady.json", LOSING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse("matchFinished.json", "");
         } else {
-            PROCESSED_ROSTER_READY = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse(MATCHID, LOSING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse(MATCHID, "");
@@ -343,7 +346,7 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
 
-        bytes memory response = bytes(PROCESSED_ROSTER_READY);
+        bytes memory response = bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER);
 
         vm.expectEmit(true, true, true, false);
         emit RosterUpdated(matchKey, WINNING_PLAYERID, WINNING_FACTION_ENUM);
@@ -365,7 +368,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = _captureRequestId();
-        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         vm.warp(block.timestamp + 6 minutes);
 
@@ -391,7 +394,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = _captureRequestId();
-        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         // This should revert because we didn't warp the timestamp forward 5 minutes
         vm.prank(fragBoxBetting.owner());
@@ -444,7 +447,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
-        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
@@ -466,7 +469,7 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
         // This should clean invalid bets
-        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         // 3. Player can now withdraw the refunded amount
         vm.startPrank(USER);
@@ -486,7 +489,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 rosterId = _captureRequestId();
-        _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         vm.startPrank(USER);
         vm.expectRevert(FragBoxBetting.FragBoxBetting__TimeoutNotReached.selector);
@@ -502,14 +505,45 @@ contract FragBoxBettingTest is Test {
     }
 
     function testNoOneBetOnWinner_AllRefunded() public {
+        bytes32 matchKey = fragBoxBetting.getMatchKey(MATCHID);
+
         // deposit only on losing faction
-        vm.prank(USER);
+        vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, LOSING_PLAYERID, LOSING_FACTION);
+        vm.stopPrank();
 
         // fulfill status with winner = other faction
+        vm.startPrank(fragBoxBetting.owner());
+        _startRequestCapture();
+        fragBoxBetting.updateMatchRoster(MATCHID, LOSING_PLAYERID);
+        bytes32 rosterId = _captureRequestId();
+        vm.stopPrank();
+        _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
+
+        vm.warp(block.timestamp + 6 minutes);
+
+        vm.startPrank(USER);
+        _startRequestCapture();
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusReq = _captureRequestId();
+        vm.stopPrank();
+
+        bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
+
+        vm.expectEmit(true, true, true, true);
+        emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction1");
+
+        _simulateFulfill(statusReq, response, "");
 
         // claim() should refund everyone via playerToWinnings
+        vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID);
+
         // withdraw succeeds
+        uint256 balBefore = USER.balance;
+        fragBoxBetting.withdraw(LOSING_PLAYERID);
+        vm.stopPrank();
+        assertEq(USER.balance, balBefore);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -520,7 +554,6 @@ contract FragBoxBettingTest is Test {
     }
 
     function testGetUsdValueOfEth() public view {
-        console.log(fragBoxBetting.getUsdValueOfEth(1e18));
         assertEq(uint256(fragBoxBetting.getEthUsdPrice()), fragBoxBetting.getUsdValueOfEth(1e18));
     }
 

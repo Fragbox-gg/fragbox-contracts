@@ -582,7 +582,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function withdraw(string memory playerId) external nonReentrant {
         uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
-        if (winningsAmount <= 0) {
+        if (winningsAmount == 0) {
             revert FragBoxBetting__NoWinnings();
         }
         playerToWinnings[playerId][msg.sender] -= winningsAmount;
