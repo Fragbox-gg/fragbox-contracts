@@ -13,7 +13,7 @@ contract FragBoxBettingTest is Test {
     uint256 constant STARTING_BALANCE = 10 ether;
 
     string constant MATCHID = "1-d031ff3b-8654-4922-9f90-0bc538e3d6e4";
-    string constant PLAYERID = "415c58c9-81cd-435a-be65-fff9d891483b";
+    string constant PLAYERID = "94f98244-169d-478a-a5dd-21dde2e649ca";
     string constant FACTION = "faction1";
 
     // ===================================================================
@@ -26,7 +26,7 @@ contract FragBoxBettingTest is Test {
         '{"type":"roster","f1":"541d15c2-e699-4c99-a706-ddedcd6aac62,94f98244-169d-478a-a5dd-21dde2e649ca,5295e6a8-b817-4d38-bbcf-f2c7b56bd472,5234c0d7-19f6-49f3-80b5-c427470f60b6,ecf00c3a-68a4-44d7-a212-2ff2ca0fb4fe","f2":"0a3fe9a7-b60f-4746-b30d-57bea3414077,92f1450e-182b-41db-8f31-53079df20c73,9ed84901-333f-49c4-a574-7b99fb4513c4,9054f35b-0b01-43fb-8e96-68373be8aed5,eae78ccf-7f01-4a41-809a-76594f5c8735","status":"READY"}';
     string constant PROCESSED_STATUS_VOTING = '{"type":"status","status":"VOTING","winner":"unknown"}';
     string constant PROCESSED_STATUS_ONGOING = '{"type":"status","status":"ONGOING","winner":"unknown"}';
-    string constant PROCESSED_STATUS_FINISHED = '{"type":"status","status":"FINISHED","winner":"2"}';
+    string constant PROCESSED_STATUS_FINISHED = '{"type":"status","status":"FINISHED","winner":"faction1"}';
 
     string matchReadyJson;
     string matchOngoingJson;
@@ -59,7 +59,7 @@ contract FragBoxBettingTest is Test {
     }
 
     /// @notice Change this constant to set default verbosity for all tests
-    EventLogLevel internal constant LOG_LEVEL = EventLogLevel.NamesOnly;
+    EventLogLevel internal constant LOG_LEVEL = EventLogLevel.Full;
 
     /// @notice Uses the global LOG_LEVEL constant
     function printDecodedEvents() internal view {
@@ -304,14 +304,14 @@ contract FragBoxBettingTest is Test {
         bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
-        emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction2");
+        emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction1");
 
         fragBoxBetting.testFulfillRequest(statusReq, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertEq(mb.status, "FINISHED");
         assertTrue(mb.resolved);
-        assertEq(uint256(mb.winnerFaction), uint256(FragBoxBetting.Faction.Faction2));
+        assertEq(uint256(mb.winnerFaction), uint256(FragBoxBetting.Faction.Faction1));
     }
 
     function test_FulfillRequest_ErrorPath_FromOracle() public {
