@@ -59,7 +59,7 @@ contract FragBoxBettingTest is Test {
     }
 
     /// @notice Change this constant to set default verbosity for all tests
-    EventLogLevel internal constant LOG_LEVEL = EventLogLevel.Full;
+    EventLogLevel internal constant LOG_LEVEL = EventLogLevel.NamesOnly;
 
     /// @notice Uses the global LOG_LEVEL constant
     function printDecodedEvents() internal view {

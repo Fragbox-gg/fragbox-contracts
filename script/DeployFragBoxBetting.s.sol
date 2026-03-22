@@ -23,10 +23,13 @@ contract DeployFragBoxBetting is Script {
         IFunctionsSubscriptions functionsSubscriptions = IFunctionsSubscriptions(chainLinkFunctionsRouter);
         IFunctionsSubscriptions.Subscription memory sub = functionsSubscriptions.getSubscription(subscriptionId);
 
+        string memory getRoster = vm.readFile("script/functions/getRoster.js");
+        string memory getStatus = vm.readFile("script/functions/getStatus.js");
+
         vm.startBroadcast(sub.owner);
 
         FragBoxBetting fragBoxBetting =
-            new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
+            new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, getRoster, getStatus);
 
         fragBoxBetting.updateDonSecrets(0, donHostedSecretsVersion);
 

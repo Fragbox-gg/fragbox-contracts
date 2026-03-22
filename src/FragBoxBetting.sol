@@ -36,28 +36,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
 
-    // Called ONCE by backend — returns roster + initial status
-    string private constant ROSTER_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = secrets.apiKey;"
-        "if (!apiKey) throw Error('No API key');" "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
-        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
-        "if (res.error) throw Error('Faceit API error');" "const data = res.data;" "let f1 = '';" "let f2 = '';"
-        "if (data.teams?.faction1?.roster) {" "  f1 = data.teams.faction1.roster.map(p => p.player_id).join(',');" "}"
-        "if (data.teams?.faction2?.roster) {" "  f2 = data.teams.faction2.roster.map(p => p.player_id).join(',');" "}"
-        "const status = data.status || 'UNKNOWN';" "return Functions.encodeString(JSON.stringify({" "  type: 'roster',"
-        "  f1: f1," "  f2: f2," "  status: status" "}));";
-
-    // Called REPEATEDLY by backend — status + winner only
-    string private constant STATUS_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = secrets.apiKey;"
-        "if (!apiKey) throw Error('No API key');" "const res = await Functions.makeHttpRequest({"
-        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
-        "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
-        "if (res.error) throw Error('Faceit API error');" "const data = res.data;"
-        "const status = data.status || 'UNKNOWN';" "let winner = 'unknown';"
-        "if (status === 'FINISHED' && data.results && data.results.winner) {" "  winner = data.results.winner;" "}"
-        "return Functions.encodeString(JSON.stringify({" "  type: 'status'," "  status: status," "  winner: winner"
-        "}));";
-
     enum Faction {
         Unknown,
         Faction1,
@@ -104,14 +82,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 lastStatusUpdate;
     }
 
-    mapping(bytes32 => MatchBet) private matchBets;
-    mapping(bytes32 => bytes32) private requestToMatchKey; // requestId => matchKey (bytes32)
+    mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
+    mapping(bytes32 requestId => bytes32 matchKey) private requestToMatchKey; // requestId => matchKey (bytes32)
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
     bytes32 private immutable I_DONID;
     uint64 private immutable I_SUBSCRIPTIONID;
-    address private immutable I_LINKTOKEN;
+    string private I_GETROSTER;
+    string private I_GETSTATUS;
 
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
@@ -257,13 +236,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         address chainLinkFunctionsRouter,
         bytes32 donId,
         uint64 subscriptionId,
-        address linkToken
+        string memory getRoster,
+        string memory getStatus
+
     ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
         I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
         I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
         I_DONID = donId;
         I_SUBSCRIPTIONID = subscriptionId;
-        I_LINKTOKEN = linkToken;
+        I_GETROSTER = getRoster;
+        I_GETSTATUS = getStatus;
     }
 
     /**
@@ -278,7 +260,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(ROSTER_SOURCE_TEMPLATE);
+        req.initializeRequestForInlineJavaScript(I_GETROSTER);
 
         string[] memory args = new string[](2);
         args[0] = matchIdStr;
@@ -305,7 +287,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(STATUS_SOURCE_TEMPLATE);
+        req.initializeRequestForInlineJavaScript(I_GETSTATUS);
 
         string[] memory args = new string[](2);
         args[0] = matchIdStr;
