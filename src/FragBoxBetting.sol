@@ -579,6 +579,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         emit EmergencyRefund(matchKey);
     }
 
+    /**
+     * Allows a player to withdraw their winnings
+     * @param playerId The player id the sender wallet is associated with
+     */
     function withdraw(string memory playerId) external nonReentrant {
         uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
         if (winningsAmount <= 0) {
