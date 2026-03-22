@@ -22,6 +22,17 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # === Node.js (required for verify-faceit-functions.js) ===
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      # === Foundry ===
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
@@ -34,7 +45,9 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes
 
+      # === Tests ===
       - name: Run Forge Tests (with Base Sepolia fork)
         env:
           BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          FACEIT_TEST_MODE: offline # <- Forces offline mode (fast + no API key needed)
         run: forge test --fork-url $BASE_SEPOLIA_RPC_URL --ffi -vvv
