@@ -48,8 +48,7 @@ contract FragBoxBettingTest is Test {
             PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse("matchFinished.json", "");
-        }
-        else {
+        } else {
             PROCESSED_ROSTER_READY = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
@@ -242,9 +241,12 @@ contract FragBoxBettingTest is Test {
 
     /// @notice Runs your exact JS (offline or real)
     function _getProcessedResponse(
-        string memory arg1,      // json filename OR real matchId
-        string memory arg2       // playerId (use "" for status-only calls)
-    ) internal returns (string memory) {
+        string memory arg1, // json filename OR real matchId
+        string memory arg2 // playerId (use "" for status-only calls)
+    )
+        internal
+        returns (string memory)
+    {
         string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
         string memory apiKey = vm.envOr("FACEIT_CLIENT_API_KEY", string(""));
 
@@ -252,7 +254,7 @@ contract FragBoxBettingTest is Test {
         cmds[0] = "sh";
         cmds[1] = "-c";
         cmds[2] = string.concat(
-            'node verify-faceit-functions.js ',
+            "node verify-faceit-functions.js ",
             mode,
             ' "',
             arg1,
