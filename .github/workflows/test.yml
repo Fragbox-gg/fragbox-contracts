@@ -30,7 +30,7 @@ jobs:
           cache: 'npm'
 
       - name: Install JavaScript dependencies
-        run: npm ci
+        run: npm ci --force
 
       # === Foundry ===
       - name: Install Foundry
