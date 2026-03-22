@@ -583,15 +583,4 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];
     }
-
-    /* -------------------------------------------------------------------------- */
-    /*                           TODO REMOVE THESE LATER                          */
-    /* -------------------------------------------------------------------------- */
-    function exposedGetJsonValue(string memory json, string memory key) public pure returns (string memory) {
-        return _getJsonValue(json, key);
-    }
-
-    function testFulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) public {
-        fulfillRequest(requestId, response, err);
-    }
 }

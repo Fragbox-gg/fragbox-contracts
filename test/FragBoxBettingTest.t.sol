@@ -7,6 +7,7 @@ import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 
 contract FragBoxBettingTest is Test {
     FragBoxBetting fragBoxBetting;
+    address chainLinkFunctionsRouter;
 
     address public USER = makeAddr("user");
     uint256 constant SEND_VALUE = 0.1 ether;
@@ -39,7 +40,7 @@ contract FragBoxBettingTest is Test {
 
     function setUp() external {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
-        fragBoxBetting = deployFragBoxBetting.run();
+        (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
         vm.deal(USER, STARTING_BALANCE);
 
         matchReadyJson = vm.readFile("test/faceitApiResponseBodyExamples/matchReady.json");
@@ -219,6 +220,18 @@ contract FragBoxBettingTest is Test {
         revert("RequestSent event not found");
     }
 
+    /* -------------------- SIMULATE CHAINLINK FUNCTIONS DON -------------------- */
+    function _simulateFulfill(bytes32 requestId, string memory jsonResponse, bytes memory err) internal {
+        bytes memory response = bytes(jsonResponse);
+        vm.prank(chainLinkFunctionsRouter);
+        fragBoxBetting.handleOracleFulfillment(requestId, response, err);
+    }
+
+    function _simulateFulfill(bytes32 requestId, bytes memory jsonResponse, bytes memory err) internal {
+        vm.prank(chainLinkFunctionsRouter);
+        fragBoxBetting.handleOracleFulfillment(requestId, jsonResponse, err);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                                DEPOSIT TESTS                               */
     /* -------------------------------------------------------------------------- */
@@ -252,7 +265,7 @@ contract FragBoxBettingTest is Test {
         vm.expectEmit(true, true, true, false);
         emit RosterUpdated(matchKey, 0); // playerCount will be exact in real run
 
-        fragBoxBetting.testFulfillRequest(requestId, response, "");
+        _simulateFulfill(requestId, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertTrue(mb.rosterValidated);
@@ -269,7 +282,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID);
         bytes32 rosterReq = _captureRequestId();
-        fragBoxBetting.testFulfillRequest(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
 
         // 2. Status update
         _startRequestCapture();
@@ -278,7 +291,7 @@ contract FragBoxBettingTest is Test {
         bytes32 statusReq = _captureRequestId();
 
         bytes memory response = bytes(PROCESSED_STATUS_ONGOING);
-        fragBoxBetting.testFulfillRequest(statusReq, response, "");
+        _simulateFulfill(statusReq, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertEq(mb.status, "ONGOING");
@@ -293,7 +306,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID);
         bytes32 rosterReq = _captureRequestId();
-        fragBoxBetting.testFulfillRequest(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
 
         // Finished status (uses "faction2" from your real JSON)
         _startRequestCapture();
@@ -306,7 +319,7 @@ contract FragBoxBettingTest is Test {
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction1");
 
-        fragBoxBetting.testFulfillRequest(statusReq, response, "");
+        _simulateFulfill(statusReq, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertEq(mb.status, "FINISHED");
@@ -325,22 +338,13 @@ contract FragBoxBettingTest is Test {
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(requestId, fragBoxBetting.getMatchKey(MATCHID), "ERROR", "Faceit API error");
 
-        fragBoxBetting.testFulfillRequest(requestId, "", err);
+        _simulateFulfill(requestId, string(""), err);
     }
 
     function test_FulfillRequest_InvalidRequestId_DoesNotCorruptOtherMatches() public {
         bytes32 fakeRequestId = keccak256("fake");
-        fragBoxBetting.testFulfillRequest(fakeRequestId, bytes(PROCESSED_STATUS_ONGOING), "");
+        _simulateFulfill(fakeRequestId, bytes(PROCESSED_STATUS_ONGOING), "");
         // No state change, no revert — exactly as intended
-    }
-
-    function test_exposedGetJsonValue_ParserWorks() public view {
-        string memory json = '{"type":"roster","f1":"abc,def","status":"READY","winner":""}';
-        assertEq(fragBoxBetting.exposedGetJsonValue(json, "type"), "roster");
-        assertEq(fragBoxBetting.exposedGetJsonValue(json, "f1"), "abc,def");
-        assertEq(fragBoxBetting.exposedGetJsonValue(json, "status"), "READY");
-        assertEq(fragBoxBetting.exposedGetJsonValue(json, "winner"), "");
-        assertEq(fragBoxBetting.exposedGetJsonValue(json, "missing"), "");
     }
 
     function test_DepositAfterRosterValidated_Succeeds() public {
@@ -348,7 +352,7 @@ contract FragBoxBettingTest is Test {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID);
         bytes32 requestId = _captureRequestId();
-        fragBoxBetting.testFulfillRequest(requestId, bytes(PROCESSED_ROSTER_READY), "");
+        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY), "");
 
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, FACTION);
