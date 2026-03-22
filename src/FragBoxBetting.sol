@@ -25,6 +25,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__InvalidRequest(bytes32 requestId);
     error FragBoxBetting__PlayerNotInMatch(string matchId, string playerId);
     error FragBoxBetting__SecretsNotSet();
+    error FragBoxBetting__NoWinnings();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -82,7 +83,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
-    mapping(bytes32 requestId => bytes32 matchKey) private requestToMatchKey; // requestId => matchKey (bytes32)
+    mapping(bytes32 requestId => bytes32 matchKey) private requestToMatchKey;
+    mapping(string playerId => mapping(address wallet => uint256 winnings)) private playerToWinnings;
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
@@ -97,6 +99,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
+    event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
@@ -274,7 +277,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             if (bet.amount > 0) {
                 Faction correct = mb.playerToFaction[bet.playerId];
                 if (correct == Faction.Unknown || correct != bet.faction) {
-                    Address.sendValue(payable(bet.wallet), bet.amount);
+                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
                     mb.totalBetAmount -= bet.amount;
                     bet.amount = 0; // ignored forever in claim/refund
                 }
@@ -526,7 +529,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 uint256 payout = (bet.amount * totalPot) / totalWinningBet;
 
                 if (payout > 0) {
-                    Address.sendValue(payable(bet.wallet), payout);
+                    playerToWinnings[bet.playerId][bet.wallet] += payout;
                 }
 
                 bet.amount = 0; // Prevent double payout for this bet
@@ -565,7 +568,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             uint256 amount = bet.amount;
 
             if (amount > 0) {
-                Address.sendValue(payable(bet.wallet), amount);
+                playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
                 bet.amount = 0;
             }
         }
@@ -574,6 +577,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.claimed = true;
 
         emit EmergencyRefund(matchKey);
+    }
+
+    function withdraw(string memory playerId) external nonReentrant {
+        uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
+        if (winningsAmount <= 0) {
+            revert FragBoxBetting__NoWinnings();
+        }
+        playerToWinnings[playerId][msg.sender] -= winningsAmount;
+        Address.sendValue(payable(msg.sender), winningsAmount);
+        emit WinningsWithdrawn(playerId, msg.sender, winningsAmount);
     }
 
     /* -------------------------------------------------------------------------- */
