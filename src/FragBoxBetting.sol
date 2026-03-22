@@ -389,7 +389,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
-        if (!_compareStrings(mb.status, "READY") && !_compareStrings(mb.status, "VOTING")) {
+        if (!_compareStrings(mb.status, "") && !_compareStrings(mb.status, "READY") && !_compareStrings(mb.status, "VOTING")) {
             revert FragBoxBetting__MatchNotReady();
         }
 

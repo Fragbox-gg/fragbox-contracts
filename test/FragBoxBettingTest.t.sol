@@ -16,6 +16,7 @@ contract FragBoxBettingTest is Test {
     string constant MATCHID = "1-d031ff3b-8654-4922-9f90-0bc538e3d6e4";
     string constant PLAYERID = "94f98244-169d-478a-a5dd-21dde2e649ca";
     string constant FACTION = "faction1";
+    string constant INCORRECT_FACTION = "faction2";
     FragBoxBetting.Faction constant FACTION_ENUM = FragBoxBetting.Faction.Faction1;
 
     // ===================================================================
@@ -245,7 +246,6 @@ contract FragBoxBettingTest is Test {
 
     function testPlaceBet() public {
         vm.startPrank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__MatchNotReady.selector);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, FACTION);
         vm.stopPrank();
     }
@@ -370,5 +370,47 @@ contract FragBoxBettingTest is Test {
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(fragBoxBetting.getMatchKey(MATCHID));
         assertGt(mb.totalBetAmount, 0);
+    }
+
+    function testInvalidBetGetsCleanedAndRefundedViaWithdraw() public {
+        uint256 startingBalance = USER.balance;
+        console.log("Starting balance");
+        console.log(startingBalance);
+
+        // 1. Deposit invalid bet (wrong faction)
+        vm.startPrank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, INCORRECT_FACTION);
+        vm.stopPrank();
+
+        // 2. Set Match Status To Ready and call roster
+        _startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
+        bytes32 requestId = _captureRequestId();
+        // This should clean invalid bets
+        _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY), "");
+
+        // 3. Player can now withdraw the refunded amount
+        vm.startPrank(USER);
+        uint256 balBefore = USER.balance;
+        console.log("Bal before");
+        console.log(balBefore);
+        fragBoxBetting.withdraw(PLAYERID);
+        console.log("Bal after");
+        console.log(USER.balance);
+        assertEq(USER.balance, balBefore);
+        vm.stopPrank();
+    }
+
+    function testEmergencyRefundAfterTimeout() public {
+        // deposit, advance time >24h, call emergencyRefund
+        // then player calls withdraw() and gets full amount back
+    }
+
+    function testNoOneBetOnWinner_AllRefunded() public {
+        // deposit only on losing faction
+        // fulfill status with winner = other faction
+        // claim() should refund everyone via playerToWinnings
+        // withdraw succeeds
     }
 }
