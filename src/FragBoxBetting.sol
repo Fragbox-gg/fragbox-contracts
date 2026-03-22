@@ -341,7 +341,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETSTATUS);
 
-        string[] memory args = new string[](2);
+        string[] memory args = new string[](1);
         args[0] = matchIdStr;
         req.setArgs(args);
 
