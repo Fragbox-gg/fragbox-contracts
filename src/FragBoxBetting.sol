@@ -580,7 +580,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
-     * Allows a player to withdraw their winnings
+     * Allows a player to withdraw their winnings from the contract
      * @param playerId The player id the sender wallet is associated with
      */
     function withdraw(string memory playerId) external nonReentrant {
