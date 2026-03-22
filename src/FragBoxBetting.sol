@@ -471,7 +471,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             mb.lastRosterUpdate = block.timestamp;
             mb.lastStatusUpdate = block.timestamp;
             
-            _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
+            if (_compareStrings(status, "FINISHED")) {
+                mb.winnerFaction = _toFaction(winner);
+                mb.resolved = true;
+            }
+
+            _cleanInvalidBets(mb);
 
             emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
