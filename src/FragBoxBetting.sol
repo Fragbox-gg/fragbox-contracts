@@ -37,6 +37,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
+    uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
 
     enum Faction {
         Unknown,
@@ -335,12 +336,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Called REPEATEDLY by backend to update match status
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external onlyOwner {
+    function updateMatchStatus(string calldata matchIdStr) external {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.resolved || mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
+
+        if (block.timestamp < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
+            revert FragBoxBetting__StatusUpdateTooSoon();
+        }
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETSTATUS);
@@ -461,12 +466,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 return;
             }
 
-            _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
-
             mb.playerToFaction[playerId] = playerFaction;
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
             mb.lastStatusUpdate = block.timestamp;
+            
+            _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
 
             emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
