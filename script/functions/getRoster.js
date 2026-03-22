@@ -1,4 +1,5 @@
 const matchId = args[0];
+const playerId = args[1];
 const apiKey = secrets.apiKey;
 
 if (!apiKey) throw Error("No API key provided");
@@ -14,23 +15,20 @@ const res = await Functions.makeHttpRequest({
 if (res.error) throw Error(`Faceit API error: ${res.error}`);
 
 const data = res.data || {};
-let f1 = "";
-let f2 = "";
-
-if (data.teams?.faction1?.roster) {
-  f1 = data.teams.faction1.roster.map(p => p.player_id).join(",");
-}
-if (data.teams?.faction2?.roster) {
-  f2 = data.teams.faction2.roster.map(p => p.player_id).join(",");
-}
-
 const status = data.status || "UNKNOWN";
+const f1Roster = (data.teams?.faction1?.roster || []).map(p => p.player_id);
+const f2Roster = (data.teams?.faction2?.roster || []).map(p => p.player_id);
+
+let faction = 0;
+if (f1Roster.includes(playerId)) faction = 1;
+else if (f2Roster.includes(playerId)) faction = 2;
 
 return Functions.encodeString(
   JSON.stringify({
     type: "roster",
-    f1,
-    f2,
+    playerId,
+    faction, // 1 = faction1, 2 = faction2, 0 = not found
+    valid: faction > 0,
     status
   })
 );

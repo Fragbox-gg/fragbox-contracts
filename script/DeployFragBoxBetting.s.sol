@@ -9,7 +9,7 @@ import {
 } from "@chainlink/contracts/src/v0.8/functions/v1_0_0/interfaces/IFunctionsSubscriptions.sol";
 
 contract DeployFragBoxBetting is Script {
-    function run() external returns (FragBoxBetting) {
+    function run() external returns (FragBoxBetting, address) {
         HelperConfig helperConfig = new HelperConfig();
         (
             address ethUsdPriceFeed,
@@ -37,6 +37,6 @@ contract DeployFragBoxBetting is Script {
 
         vm.stopBroadcast();
 
-        return fragBoxBetting;
+        return (fragBoxBetting, chainLinkFunctionsRouter);
     }
 }

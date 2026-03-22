@@ -9,6 +9,7 @@ import {OracleLib} from "./libraries/OracleLib.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
@@ -17,7 +18,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__TimeoutNotReached();
     error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall(uint256 amount);
-    error FragBoxBetting__AlreadyRequested(bytes32 matchKey);
+    error FragBoxBetting__RosterAlreadyRequested(bytes32 matchKey, string playerId);
     error FragBoxBetting__InvalidFaction(string factionStr);
     error FragBoxBetting__MatchNotReady();
     error FragBoxBetting__MatchNotFinished();
@@ -60,7 +61,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalFeesCollected;
 
         mapping(string => Faction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
-        bool rosterValidated; // Has the oracle successfully updated rosters?
         uint256 lastRosterUpdate; // timestamp of last successful update
 
         string status; // "READY", "ONGOING", "FINISHED"
@@ -76,7 +76,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes32 requestId;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
-        bool rosterValidated;
         uint256 lastRosterUpdate;
         string status;
         uint256 lastStatusUpdate;
@@ -92,12 +91,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     string private I_GETROSTER;
     string private I_GETSTATUS;
 
-    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, Faction faction, string playerId);
+    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
-    event RosterUpdated(bytes32 indexed matchKey, uint256 playerCount);
+    event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
@@ -138,20 +137,30 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Lightweight JSON string extractor - perfect for small Chainlink Functions responses
-     * @dev Only looks for "key":"value" pattern (no nested objects/arrays needed yet)
+     * @dev Extracts the raw value for a key (works for both "string" and 123 values)
      * @param json The response body
      * @param key The value you're looking for
      * @return The value associated with the key inside of the json
      */
-    function _getJsonValue(string memory json, string memory key) internal pure returns (string memory) {
+    function _extractRawJsonValue(string memory json, string memory key) internal pure returns (string memory) {
         bytes memory data = bytes(json);
-        bytes memory search = bytes(string.concat('"', key, '":"'));
+        bytes memory prefix = bytes(string.concat('"', key, '":'));
 
-        for (uint256 i = 0; i <= data.length - search.length; i++) {
-            if (_memcmp(data, i, search)) {
-                uint256 start = i + search.length;
+        for (uint256 i = 0; i <= data.length - prefix.length; i++) {
+            if (_memcmp(data, i, prefix)) {
+                uint256 start = i + prefix.length;
                 uint256 end = start;
-                while (end < data.length && data[end] != '"') end++;
+
+                if (end < data.length && data[end] == '"') {
+                    // String value → skip opening quote
+                    start = end + 1;
+                    end = start;
+                    while (end < data.length && data[end] != '"') end++;
+                } else {
+                    // Number, boolean, or null → stop at , } or ]
+                    while (end < data.length && data[end] != "," && data[end] != "}" && data[end] != "]") end++;
+                }
+
                 bytes memory value = new bytes(end - start);
                 for (uint256 k = 0; k < value.length; k++) {
                     value[k] = data[start + k];
@@ -177,6 +186,47 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             if (a[offset + i] != b[i]) return false;
         }
         return true;
+    }
+
+    /**
+     * Wrapper function for extracting string parameters in a JSON string
+     * @param json The response body
+     * @param key The value you're looking for
+     * @return The string value associated with the key inside of the json
+     */
+    function _getJsonString(string memory json, string memory key) internal pure returns (string memory) {
+        return _extractRawJsonValue(json, key);
+    }
+
+    /**
+     * Wrapper function for extracting integer parameters in a JSON string
+     * @param json The response body
+     * @param key The value you're looking for
+     * @return The integer value associated with the key inside of the json if it exists
+     */
+    function _getJsonUint(string memory json, string memory key) internal pure returns (uint256) {
+        string memory raw = _extractRawJsonValue(json, key);
+        if (bytes(raw).length == 0) return 0;
+
+        (bool success, uint256 value) = Strings.tryParseUint(raw);
+        if (!success) {
+            return 0;
+        }
+        return value;
+    }
+
+    /**
+     * Wrapper function for extracting boolean parameters in a JSON string
+     * @param json The response body
+     * @param key The value you're looking for
+     * @return The boolean value associated with the key inside of the json if it exists
+     */
+    function _getJsonBool(string memory json, string memory key) internal pure returns (bool) {
+        string memory raw = _extractRawJsonValue(json, key);
+        if (bytes(raw).length == 0) return false;
+
+        bytes32 h = keccak256(bytes(raw));
+        return h == keccak256("true") || h == keccak256("1");
     }
 
     /**
@@ -251,11 +301,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Called ONCE by backend to fetch and store player rosters
      * @param matchIdStr The match Id to check
      */
-    function updateMatchRoster(string calldata matchIdStr) external onlyOwner {
+    function updateMatchRoster(string calldata matchIdStr, string calldata playerId) external onlyOwner {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.rosterValidated) revert FragBoxBetting__AlreadyRequested(matchKey);
+        if (mb.playerToFaction[playerId] != Faction.Unknown) {
+            revert FragBoxBetting__RosterAlreadyRequested(matchKey, playerId);
+        }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
@@ -331,11 +383,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
 
         // Hard validation - only revert after roster has been fetched at least once (covers both "not present" and "wrong faction")
-        if (mb.rosterValidated) {
-            Faction actual = mb.playerToFaction[playerId];
-            if (actual == Faction.Unknown || actual != chosenFaction) {
-                revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
-            }
+        Faction actual = mb.playerToFaction[playerId];
+        if (actual != Faction.Unknown && actual != chosenFaction) {
+            revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
         }
 
         // Calculate house fee and actual bet amount
@@ -351,10 +401,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 betsLength = mb.bets.length;
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
-            if (
-                bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId) // use your existing helper for string comparison
-                    && bet.faction == chosenFaction
-            ) {
+            if (bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId) && bet.faction == chosenFaction) {
                 bet.amount += betAmount;
                 betExists = true;
                 break;
@@ -368,7 +415,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.totalBetAmount += betAmount;
         mb.totalFeesCollected += fee;
 
-        emit BetPlaced(matchKey, msg.sender, betAmount, chosenFaction, playerId);
+        emit BetPlaced(matchKey, msg.sender, betAmount, playerId);
     }
 
     /**
@@ -394,24 +441,33 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         string memory json = string(response);
 
-        string memory responseType = _getJsonValue(json, "type");
-        string memory status = _getJsonValue(json, "status");
-        string memory winner = _getJsonValue(json, "winner");
-        string memory f1Csv = _getJsonValue(json, "f1");
-        string memory f2Csv = _getJsonValue(json, "f2");
+        string memory responseType = _getJsonString(json, "type");
+        string memory status = _getJsonString(json, "status");
+        string memory winner = _getJsonString(json, "winner");
+        string memory playerId = _getJsonString(json, "playerId");
+        uint256 playerFactionRaw = _getJsonUint(json, "faction");
+        bool playerValid = _getJsonBool(json, "valid");
+
+        Faction playerFaction = Faction(SafeCast.toUint8(playerFactionRaw));
 
         if (_compareStrings(responseType, "roster")) {
-            uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv, Faction.Faction1);
-            playersAdded += _addPlayersFromCsv(mb, f2Csv, Faction.Faction2);
+            if (!playerValid) {
+                emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
+                return;
+            }
+
+            uint256 playersAdded = 0;
+            // uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv, Faction.Faction1);
+            // playersAdded += _addPlayersFromCsv(mb, f2Csv, Faction.Faction2);
 
             _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
 
-            mb.rosterValidated = true;
+            mb.playerToFaction[playerId] = playerFaction;
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
             mb.lastStatusUpdate = block.timestamp;
 
-            emit RosterUpdated(matchKey, playersAdded);
+            emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
@@ -568,7 +624,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             requestId: mb.requestId,
             totalBetAmount: mb.totalBetAmount,
             totalFeesCollected: mb.totalFeesCollected,
-            rosterValidated: mb.rosterValidated,
             lastRosterUpdate: mb.lastRosterUpdate,
             status: mb.status,
             lastStatusUpdate: mb.lastStatusUpdate
@@ -582,16 +637,5 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];
-    }
-
-    /* -------------------------------------------------------------------------- */
-    /*                           TODO REMOVE THESE LATER                          */
-    /* -------------------------------------------------------------------------- */
-    function exposedGetJsonValue(string memory json, string memory key) public pure returns (string memory) {
-        return _getJsonValue(json, key);
-    }
-
-    function testFulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) public {
-        fulfillRequest(requestId, response, err);
     }
 }
