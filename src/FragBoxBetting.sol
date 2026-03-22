@@ -60,7 +60,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
 
-        mapping(string => Faction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
+        mapping(string playerId => Faction playerFaction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
         uint256 lastRosterUpdate; // timestamp of last successful update
 
         string status; // "READY", "ONGOING", "FINISHED"
@@ -632,6 +632,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * This lets you access a player's faction based on a match bet's mapping
      * @param matchKey The match the player is in
      * @param playerId The player to get the faction of
+     * @return Returns the Faction a player belongs to
      */
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];
