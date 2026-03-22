@@ -121,12 +121,12 @@ contract FragBoxBettingTest is Test {
     }
 
     /* -------------------------- YOUR EVENT SIGNATURES ------------------------- */
-    bytes32 internal constant BET_PLACED_SIG = keccak256("BetPlaced(bytes32,address,uint256,uint8,string)");
+    bytes32 internal constant BET_PLACED_SIG = keccak256("BetPlaced(bytes32,address,uint256,string)");
     bytes32 internal constant REQUEST_SENT_SIG = keccak256("RequestSent(bytes32,bytes32)");
     bytes32 internal constant REQUEST_FULFILLED_SIG = keccak256("RequestFulfilled(bytes32,bytes32,string,string)");
     bytes32 internal constant EMERGENCY_REFUND_SIG = keccak256("EmergencyRefund(bytes32)");
     bytes32 internal constant MATCH_CLAIMED_SIG = keccak256("MatchClaimed(bytes32)");
-    bytes32 internal constant ROSTER_UPDATED_SIG = keccak256("RosterUpdated(bytes32,string,FragBoxBetting.Faction)");
+    bytes32 internal constant ROSTER_UPDATED_SIG = keccak256("RosterUpdated(bytes32,string,uint8)");
 
     /* ----------------------------- EVENT DECODERS ----------------------------- */
     function _printBetPlaced(Vm.Log memory log, EventLogLevel level) private pure {
