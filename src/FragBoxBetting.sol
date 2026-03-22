@@ -36,7 +36,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
+    uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
 
     enum Faction {
         Unknown,
@@ -369,7 +369,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         payable
         nonReentrant
     {
-        if (msg.value < MIN_BET_AMOUNT) revert FragBoxBetting__BetTooSmall(msg.value);
+        if (getUsdValueOfEth(msg.value) < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
 
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
@@ -515,7 +515,24 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             }
         }
 
-        if (totalWinningBet == 0 || mb.totalBetAmount == 0) {
+        if (totalWinningBet == 0) {
+            // If total winning bet is 0 (no one betted on the winning team), then refund all players
+            for (uint256 i = 0; i < betsLength; i++) {
+                Bet storage bet = mb.bets[i];
+                uint256 amount = bet.amount;
+
+                if (amount > 0) {
+                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
+                    bet.amount = 0;
+                }
+            }
+
+            mb.claimed = true;
+            emit MatchClaimed(matchKey);
+            return;
+        }
+
+        if (mb.totalBetAmount == 0) {
             mb.claimed = true;
             emit MatchClaimed(matchKey);
             return;
@@ -538,9 +555,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 bet.amount = 0; // Prevent double payout for this bet
             }
         }
-
-        // Optional: delete the match data
-        // delete matchBets[matchKey];
 
         mb.claimed = true;
         emit MatchClaimed(matchKey);
