@@ -427,7 +427,6 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, LOSING_PLAYERID, LOSING_FACTION);
 
         // fulfill status with winner = other faction
-        
 
         // claim() should refund everyone via playerToWinnings
         // withdraw succeeds
