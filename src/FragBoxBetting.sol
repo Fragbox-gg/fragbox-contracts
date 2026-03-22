@@ -655,7 +655,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     /**
      * Gets the amount of winnings a player has earned but hasn't withdrawn in wei
      * @param playerId The player who earned the winnings and is associated with the msg.sender
-     * @return The winnings in WEI
+     * @return The winnings in wei
      */
     function getWinnings(string calldata playerId) external view returns (uint256) {
         return playerToWinnings[playerId][msg.sender];
