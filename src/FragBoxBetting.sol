@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
 import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
@@ -25,6 +25,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__InvalidRequest(bytes32 requestId);
     error FragBoxBetting__PlayerNotInMatch(string matchId, string playerId);
     error FragBoxBetting__SecretsNotSet();
+    error FragBoxBetting__NoWinnings();
+    error FragBoxBetting__StatusUpdateTooSoon();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -35,7 +37,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant MIN_BET_AMOUNT = 0.001 ether;
+    uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
+    uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
 
     enum Faction {
         Unknown,
@@ -60,7 +63,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
 
-        mapping(string => Faction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
+        mapping(string playerId => Faction playerFaction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
         uint256 lastRosterUpdate; // timestamp of last successful update
 
         string status; // "READY", "ONGOING", "FINISHED"
@@ -82,7 +85,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
-    mapping(bytes32 requestId => bytes32 matchKey) private requestToMatchKey; // requestId => matchKey (bytes32)
+    mapping(bytes32 requestId => bytes32 matchKey) private requestToMatchKey;
+    mapping(string playerId => mapping(address wallet => uint256 winnings)) private playerToWinnings;
 
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
@@ -97,6 +101,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
+    event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
@@ -274,7 +279,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             if (bet.amount > 0) {
                 Faction correct = mb.playerToFaction[bet.playerId];
                 if (correct == Faction.Unknown || correct != bet.faction) {
-                    Address.sendValue(payable(bet.wallet), bet.amount);
+                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
+                    mb.totalBetAmount -= bet.amount;
                     bet.amount = 0; // ignored forever in claim/refund
                 }
             }
@@ -315,6 +321,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         string[] memory args = new string[](2);
         args[0] = matchIdStr;
+        args[1] = playerId;
         req.setArgs(args);
 
         req.addDONHostedSecrets(donHostedSecretsSlotId, donHostedSecretsVersion);
@@ -330,17 +337,21 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Called REPEATEDLY by backend to update match status
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external onlyOwner {
+    function updateMatchStatus(string calldata matchIdStr) external {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.resolved || mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
+        if (block.timestamp < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
+            revert FragBoxBetting__StatusUpdateTooSoon();
+        }
+
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETSTATUS);
 
-        string[] memory args = new string[](2);
+        string[] memory args = new string[](1);
         args[0] = matchIdStr;
         req.setArgs(args);
 
@@ -364,7 +375,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         payable
         nonReentrant
     {
-        if (msg.value < MIN_BET_AMOUNT) revert FragBoxBetting__BetTooSmall(msg.value);
+        if (getUsdValueOfEth(msg.value) < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
 
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
@@ -378,7 +389,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
-        if (!_compareStrings(mb.status, "READY")) {
+        if (
+            !_compareStrings(mb.status, "") && !_compareStrings(mb.status, "READY")
+                && !_compareStrings(mb.status, "VOTING")
+        ) {
             revert FragBoxBetting__MatchNotReady();
         }
 
@@ -456,16 +470,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 return;
             }
 
-            uint256 playersAdded = 0;
-            // uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv, Faction.Faction1);
-            // playersAdded += _addPlayersFromCsv(mb, f2Csv, Faction.Faction2);
-
-            _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
-
             mb.playerToFaction[playerId] = playerFaction;
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
             mb.lastStatusUpdate = block.timestamp;
+
+            if (_compareStrings(status, "FINISHED")) {
+                mb.winnerFaction = _toFaction(winner);
+                mb.resolved = true;
+            }
+
+            _cleanInvalidBets(mb);
 
             emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
@@ -497,6 +512,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
+            revert FragBoxBetting__MatchNotRequested();
+        }
         if (!_compareStrings(mb.status, "FINISHED")) {
             revert FragBoxBetting__MatchNotFinished();
         }
@@ -511,7 +529,24 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             }
         }
 
-        if (totalWinningBet == 0 || mb.totalBetAmount == 0) {
+        if (totalWinningBet == 0) {
+            // If total winning bet is 0 (no one betted on the winning team), then refund all players
+            for (uint256 i = 0; i < betsLength; i++) {
+                Bet storage bet = mb.bets[i];
+                uint256 amount = bet.amount;
+
+                if (amount > 0) {
+                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
+                    bet.amount = 0;
+                }
+            }
+
+            mb.claimed = true;
+            emit MatchClaimed(matchKey);
+            return;
+        }
+
+        if (mb.totalBetAmount == 0) {
             mb.claimed = true;
             emit MatchClaimed(matchKey);
             return;
@@ -528,15 +563,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 uint256 payout = (bet.amount * totalPot) / totalWinningBet;
 
                 if (payout > 0) {
-                    Address.sendValue(payable(bet.wallet), payout);
+                    playerToWinnings[bet.playerId][bet.wallet] += payout;
                 }
 
                 bet.amount = 0; // Prevent double payout for this bet
             }
         }
-
-        // Optional: delete the match data
-        // delete matchBets[matchKey];
 
         mb.claimed = true;
         emit MatchClaimed(matchKey);
@@ -553,7 +585,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.resolved || mb.claimed) {
             revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         }
-        if (mb.lastStatusUpdate == 0) {
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
             revert FragBoxBetting__MatchNotRequested();
         }
         if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
@@ -567,7 +599,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             uint256 amount = bet.amount;
 
             if (amount > 0) {
-                Address.sendValue(payable(bet.wallet), amount);
+                playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
                 bet.amount = 0;
             }
         }
@@ -576,6 +608,20 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.claimed = true;
 
         emit EmergencyRefund(matchKey);
+    }
+
+    /**
+     * Allows a player to withdraw their winnings from the contract
+     * @param playerId The player id the sender wallet is associated with
+     */
+    function withdraw(string memory playerId) external nonReentrant {
+        uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
+        if (winningsAmount <= 0) {
+            revert FragBoxBetting__NoWinnings();
+        }
+        playerToWinnings[playerId][msg.sender] -= winningsAmount;
+        Address.sendValue(payable(msg.sender), winningsAmount);
+        emit WinningsWithdrawn(playerId, msg.sender, winningsAmount);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -634,6 +680,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * This lets you access a player's faction based on a match bet's mapping
      * @param matchKey The match the player is in
      * @param playerId The player to get the faction of
+     * @return Returns the Faction a player belongs to
      */
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];

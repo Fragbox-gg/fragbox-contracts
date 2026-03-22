@@ -16,6 +16,12 @@ if (res.error) throw Error(`Faceit API error: ${res.error}`);
 
 const data = res.data || {};
 const status = data.status || "UNKNOWN";
+
+let winner = "unknown";
+if (status === "FINISHED" && data.results?.winner) {
+  winner = data.results.winner;
+}
+
 const f1Roster = (data.teams?.faction1?.roster || []).map(p => p.player_id);
 const f2Roster = (data.teams?.faction2?.roster || []).map(p => p.player_id);
 
@@ -29,6 +35,7 @@ return Functions.encodeString(
     playerId,
     faction, // 1 = faction1, 2 = faction2, 0 = not found
     valid: faction > 0,
-    status
+    status,
+    winner
   })
 );

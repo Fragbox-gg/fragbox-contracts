@@ -10,39 +10,42 @@ const EXAMPLES_DIR = path.join(__dirname, 'test/faceitApiResponseBodyExamples');
 
 async function main() {
   const mode = process.argv[2]?.toLowerCase();
+  const isSilent = process.argv.includes('--silent');
 
   if (mode === 'offline') {
     const filename = process.argv[3];
     if (!filename) return console.error('❌ Provide filename e.g. matchFinished.json');
-    const playerId = process.argv[4];
-    runOffline(filename, playerId);
+    const playerId = process.argv[5];
+    runOffline(filename, playerId, isSilent);
   } else if (mode === 'real') {
     const matchId = process.argv[3];
-    const playerId = process.argv[4];
-    let apiKey = process.argv.find(a => a.startsWith('--api-key='))?.split('=')[1] || process.env.FACEIT_API_KEY;
-    if (!matchId || !playerId || !apiKey) {
-      return console.error('Usage: node verify-faceit-functions.js real <matchId> --api-key=YOUR_KEY');
+    const playerId = process.argv[5];
+    let apiKey = process.argv.find(a => a.startsWith('--api-key='))?.split('=')[1] || process.env.FACEIT_CLIENT_API_KEY;
+    if (!matchId || !apiKey) {
+      return console.error('Usage: node verify-faceit-functions.js real <matchId> --api-key=YOUR_KEY <playerId>');
     }
-    await runReal(matchId, playerId, apiKey);
-  } else {
+    await runReal(matchId, playerId, apiKey, isSilent);
+  } else if (!isSilent) {
     console.log('Commands:');
     console.log('  offline <filename>');
     console.log('  real <matchId> --api-key=xxx');
   }
 }
 
-function runOffline(filename, playerId) {
-  console.log(`\n📁 OFFLINE MODE → ${filename}`);
+function runOffline(filename, playerId, isSilent) {
+  if (!isSilent) console.log(`\n📁 OFFLINE MODE → ${filename}`);
   const raw = JSON.parse(fs.readFileSync(path.join(EXAMPLES_DIR, filename), 'utf8'));
-  console.log('\nSTATUS string:');
-  console.log(processStatus(raw));
-
+  
   if (playerId) {
-    console.log('\nROSTER string:');
-    console.log(processRoster(raw, playerId));
+    if (!isSilent) console.log('\nROSTER string:');
+    process.stdout.write(processRoster(raw, playerId));
   }
   else {
-    console.log("\nNo player id provided so I'm skipping processRoster");
+    if (!isSilent) {
+      console.log("\nNo player id provided so I'm skipping processRoster");
+      console.log('\nSTATUS string:');
+    }
+    process.stdout.write(processStatus(raw));
   }
 }
 
@@ -65,22 +68,29 @@ function processRoster(data, playerId) {
   return JSON.stringify({ type: "roster", playerId, faction, valid: faction > 0, status });
 }
 
-async function runReal(matchId, playerId, apiKey) {
-  console.log(`\n🔴 LIVE MODE → matchId ${matchId}`);
+async function runReal(matchId, playerId, apiKey, isSilent) {
+  if (!isSilent) console.log(`\n🔴 LIVE MODE → matchId ${matchId}`);
   const statusSource = fs.readFileSync(STATUS_JS_PATH, 'utf8');
   const rosterSource = fs.readFileSync(ROSTER_JS_PATH, 'utf8');
   const secrets = { apiKey };
 
-  console.log('\n▶️  getStatus.js');
-  const statusRes = await simulateScript({ source: statusSource, args: [matchId], secrets });
-  logResult('STATUS', statusRes);
-
-  console.log('\n▶️  getRoster.js');
-  const verifyRes = await simulateScript({ source: rosterSource, args: [matchId, playerId], secrets });
-  logResult('ROSTER', verifyRes);
+  if (playerId) {
+    if (!isSilent) console.log('\n▶️  getRoster.js');
+    const verifyRes = await simulateScript({ source: rosterSource, args: [matchId, playerId], secrets });
+    if (isSilent) process.stdout.write(convertResponseObjectToString(verifyRes));
+    logResult('ROSTER', verifyRes, isSilent);
+  }
+  else {
+    if (!isSilent) console.log('\n▶️  getStatus.js');
+    const statusRes = await simulateScript({ source: statusSource, args: [matchId], secrets });
+    if (isSilent) process.stdout.write(convertResponseObjectToString(statusRes));
+    logResult('STATUS', statusRes, isSilent);
+  }
 }
 
-function logResult(type, result) {
+function logResult(type, result, isSilent) {
+  if (isSilent) return;
+
   console.log(`\n=== ${type} Result ===`);
   if (result.capturedTerminalOutput) console.log(result.capturedTerminalOutput);
 
@@ -89,15 +99,26 @@ function logResult(type, result) {
     return;
   }
 
+  str = convertResponseObjectToString(result);
+  console.log(`✅ Response (${str.length} bytes / max 256):`);
+  console.log(str);
+  if (str.length > 256) console.error('⚠️  EXCEEDS CHAINLINK FUNCTIONS LIMIT!');
+  else console.log('✅ Under limit - good for DON');
+}
+
+function convertResponseObjectToString(result) {
+  // console.log(result.responseBytesHexstring);
+  // console.log(result.response);
+  // console.log(result.error);
+  // console.log(result.errorString);
+
+  // return 'Check';
   const hex = result.responseBytesHexstring || result.response;
   if (!hex) return console.error('No response');
 
   const bytes = Buffer.from(hex.startsWith('0x') ? hex.slice(2) : hex, 'hex');
   const str = new TextDecoder().decode(bytes);
-  console.log(`✅ Response (${str.length} bytes / max 256):`);
-  console.log(str);
-  if (str.length > 256) console.error('⚠️  EXCEEDS CHAINLINK FUNCTIONS LIMIT!');
-  else console.log('✅ Under limit - good for DON');
+  return str;
 }
 
 main().catch(console.error);
