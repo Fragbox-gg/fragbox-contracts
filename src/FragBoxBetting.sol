@@ -315,6 +315,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         string[] memory args = new string[](2);
         args[0] = matchIdStr;
+        args[1] = playerId;
         req.setArgs(args);
 
         req.addDONHostedSecrets(donHostedSecretsSlotId, donHostedSecretsVersion);
@@ -455,10 +456,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
                 return;
             }
-
-            uint256 playersAdded = 0;
-            // uint256 playersAdded = _addPlayersFromCsv(mb, f1Csv, Faction.Faction1);
-            // playersAdded += _addPlayersFromCsv(mb, f2Csv, Faction.Faction2);
 
             _cleanInvalidBets(mb); // removes invalid bets (sets amount = 0)
 
