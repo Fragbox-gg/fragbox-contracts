@@ -16,6 +16,7 @@ contract FragBoxBettingTest is Test {
     string constant MATCHID = "1-d031ff3b-8654-4922-9f90-0bc538e3d6e4";
     string constant PLAYERID = "94f98244-169d-478a-a5dd-21dde2e649ca";
     string constant FACTION = "faction1";
+    FragBoxBetting.Faction constant FACTION_ENUM = FragBoxBetting.Faction.Faction1;
 
     // ===================================================================
     // PROCESSED RESPONSES (EXACT output of your Chainlink Functions JS templates)
@@ -24,7 +25,7 @@ contract FragBoxBettingTest is Test {
     // They are the tiny {type, f1, f2, status} or {type, status, winner} objects
     // that your ROSTER_SOURCE_TEMPLATE / STATUS_SOURCE_TEMPLATE actually return.
     string constant PROCESSED_ROSTER_READY =
-        '{"type":"roster","f1":"541d15c2-e699-4c99-a706-ddedcd6aac62,94f98244-169d-478a-a5dd-21dde2e649ca,5295e6a8-b817-4d38-bbcf-f2c7b56bd472,5234c0d7-19f6-49f3-80b5-c427470f60b6,ecf00c3a-68a4-44d7-a212-2ff2ca0fb4fe","f2":"0a3fe9a7-b60f-4746-b30d-57bea3414077,92f1450e-182b-41db-8f31-53079df20c73,9ed84901-333f-49c4-a574-7b99fb4513c4,9054f35b-0b01-43fb-8e96-68373be8aed5,eae78ccf-7f01-4a41-809a-76594f5c8735","status":"READY"}';
+        '{"type":"roster","playerId":"94f98244-169d-478a-a5dd-21dde2e649ca","faction":1,"valid":true,"status":"READY"}';
     string constant PROCESSED_STATUS_VOTING = '{"type":"status","status":"VOTING","winner":"unknown"}';
     string constant PROCESSED_STATUS_ONGOING = '{"type":"status","status":"ONGOING","winner":"unknown"}';
     string constant PROCESSED_STATUS_FINISHED = '{"type":"status","status":"FINISHED","winner":"faction1"}';
@@ -35,7 +36,7 @@ contract FragBoxBettingTest is Test {
     string matchVotingJson;
 
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RosterUpdated(bytes32 indexed matchKey, uint256 playerCount);
+    event RosterUpdated(bytes32 indexed matchKey, string playerId, FragBoxBetting.Faction playerFaction);
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
 
     function setUp() external {
@@ -119,7 +120,7 @@ contract FragBoxBettingTest is Test {
     bytes32 internal constant REQUEST_FULFILLED_SIG = keccak256("RequestFulfilled(bytes32,bytes32,string,string)");
     bytes32 internal constant EMERGENCY_REFUND_SIG = keccak256("EmergencyRefund(bytes32)");
     bytes32 internal constant MATCH_CLAIMED_SIG = keccak256("MatchClaimed(bytes32)");
-    bytes32 internal constant ROSTER_UPDATED_SIG = keccak256("RosterUpdated(bytes32,uint256)");
+    bytes32 internal constant ROSTER_UPDATED_SIG = keccak256("RosterUpdated(bytes32,string,FragBoxBetting.Faction)");
 
     /* ----------------------------- EVENT DECODERS ----------------------------- */
     function _printBetPlaced(Vm.Log memory log, EventLogLevel level) private pure {
@@ -257,18 +258,18 @@ contract FragBoxBettingTest is Test {
 
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID);
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 requestId = _captureRequestId();
 
         bytes memory response = bytes(PROCESSED_ROSTER_READY);
 
         vm.expectEmit(true, true, true, false);
-        emit RosterUpdated(matchKey, 0); // playerCount will be exact in real run
+        emit RosterUpdated(matchKey, PLAYERID, FACTION_ENUM);
 
         _simulateFulfill(requestId, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
-        assertTrue(mb.rosterValidated);
+        assertTrue(fragBoxBetting.getPlayerFaction(matchKey, PLAYERID) == FragBoxBetting.Faction.Faction1);
         assertEq(mb.status, "READY");
         assertEq(mb.lastRosterUpdate, block.timestamp);
         assertEq(mb.lastStatusUpdate, block.timestamp);
@@ -280,7 +281,7 @@ contract FragBoxBettingTest is Test {
         // 1. Roster first
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID);
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
 
@@ -304,7 +305,7 @@ contract FragBoxBettingTest is Test {
         // Roster first
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID);
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
 
@@ -330,7 +331,7 @@ contract FragBoxBettingTest is Test {
     function test_FulfillRequest_ErrorPath_FromOracle() public {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID);
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 requestId = _captureRequestId();
 
         bytes memory err = bytes("Faceit API error");
@@ -350,7 +351,7 @@ contract FragBoxBettingTest is Test {
     function test_DepositAfterRosterValidated_Succeeds() public {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID);
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 requestId = _captureRequestId();
         _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY), "");
 
