@@ -389,7 +389,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
-        if (!_compareStrings(mb.status, "") && !_compareStrings(mb.status, "READY") && !_compareStrings(mb.status, "VOTING")) {
+        if (
+            !_compareStrings(mb.status, "") && !_compareStrings(mb.status, "READY")
+                && !_compareStrings(mb.status, "VOTING")
+        ) {
             revert FragBoxBetting__MatchNotReady();
         }
 
@@ -471,7 +474,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             mb.status = status;
             mb.lastRosterUpdate = block.timestamp;
             mb.lastStatusUpdate = block.timestamp;
-            
+
             if (_compareStrings(status, "FINISHED")) {
                 mb.winnerFaction = _toFaction(winner);
                 mb.resolved = true;
