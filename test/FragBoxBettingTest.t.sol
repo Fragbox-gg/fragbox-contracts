@@ -285,6 +285,8 @@ contract FragBoxBettingTest is Test {
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
 
+        vm.warp(block.timestamp + 6 minutes);
+
         // 2. Status update
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
@@ -308,6 +310,13 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY), "");
+
+        // This should revert because we didn't warp the timestamp forward 5 minutes
+        vm.prank(fragBoxBetting.owner());
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
+        fragBoxBetting.updateMatchStatus(MATCHID);
+
+        vm.warp(block.timestamp + 6 minutes);
 
         // Finished status (uses "faction2" from your real JSON)
         _startRequestCapture();

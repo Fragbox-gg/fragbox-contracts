@@ -26,6 +26,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__PlayerNotInMatch(string matchId, string playerId);
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__NoWinnings();
+    error FragBoxBetting__StatusUpdateTooSoon();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
