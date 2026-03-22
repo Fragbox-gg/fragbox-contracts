@@ -32,6 +32,8 @@ lib/
 .DS_Store
 zkout/
 
+.gas-snapshot
+
 ### Node
 # dependencies
 /node_modules

@@ -511,4 +511,28 @@ contract FragBoxBettingTest is Test {
         // claim() should refund everyone via playerToWinnings
         // withdraw succeeds
     }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                TEST GETTERS                                */
+    /* -------------------------------------------------------------------------- */
+    function testGetEthUsdPrice() public view {
+        fragBoxBetting.getEthUsdPrice();
+    }
+
+    function testGetUsdValueOfEth() public view {
+        console.log(fragBoxBetting.getUsdValueOfEth(1e18));
+        assertEq(uint256(fragBoxBetting.getEthUsdPrice()), fragBoxBetting.getUsdValueOfEth(1e18));
+    }
+
+    function testGetMatchKey() public view {
+        fragBoxBetting.getMatchKey(MATCHID);
+    }
+
+    function testGetMatchBet() public view {
+        fragBoxBetting.getMatchBet(fragBoxBetting.getMatchKey(MATCHID));
+    }
+
+    function testGetPlayerFaction() public view {
+        fragBoxBetting.getPlayerFaction(fragBoxBetting.getMatchKey(MATCHID), WINNING_PLAYERID);
+    }
 }

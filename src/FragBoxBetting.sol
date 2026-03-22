@@ -596,11 +596,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Gets the price of ETH in USD
-     * @return The price of ETH
+     * @return The price of ETH in USD wei
      */
-    function getEthUsdPrice() public view returns (int256) {
+    function getEthUsdPrice() public view returns (uint256) {
         (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
-        return price;
+        return SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION;
     }
 
     /**
@@ -609,7 +609,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @return uint256 The $ amount equivalent of input parameter amount
      */
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
-        return (SafeCast.toUint256(getEthUsdPrice()) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
+        return (getEthUsdPrice() * amount) / PRECISION;
     }
 
     /**
@@ -650,5 +650,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];
+    }
+
+    /**
+     * Gets the amount of winnings a player has earned but hasn't withdrawn in wei
+     * @param playerId The player who earned the winnings and is associated with the msg.sender
+     * @return The winnings in WEI
+     */
+    function getWinnings(string calldata playerId) external view returns (uint256) {
+        return playerToWinnings[playerId][msg.sender];
     }
 }
