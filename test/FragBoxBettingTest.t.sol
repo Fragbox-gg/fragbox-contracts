@@ -320,11 +320,6 @@ contract FragBoxBettingTest is Test {
     /*                                DEPOSIT TESTS                               */
     /* -------------------------------------------------------------------------- */
     function testPlaceBetWithNoBalance() public {
-        console.log(PROCESSED_ROSTER_READY);
-        console.log(PROCESSED_STATUS_VOTING);
-        console.log(PROCESSED_STATUS_ONGOING);
-        console.log(PROCESSED_STATUS_FINISHED);
-
         vm.startPrank(USER);
         vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, 0));
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
