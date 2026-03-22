@@ -235,40 +235,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
-     * @notice Parses a comma-separated list of player IDs and registers each one with the given `faction` in the `MatchBet` storage struct (only if the player was previously `Unknown`).
-     * @dev Simple CSV splitter – no quoting, escaping, or whitespace trimming. Duplicates within the same CSV or players already assigned a faction are silently ignored. Modifies storage in-place.
-     * @param mb The `MatchBet` storage reference to update
-     * @param csv Comma-separated string of player IDs (e.g. "player1,player2,player3")
-     * @param faction The `Faction` to assign to newly-registered players
-     * @return The number of players that were actually added (i.e. had their faction changed)
-     */
-    function _addPlayersFromCsv(MatchBet storage mb, string memory csv, Faction faction) internal returns (uint256) {
-        if (bytes(csv).length == 0) return 0;
-
-        uint256 count = 0;
-        bytes memory data = bytes(csv);
-        uint256 start = 0;
-
-        for (uint256 i = 0; i <= data.length; i++) {
-            if (i == data.length || data[i] == ",") {
-                if (i > start) {
-                    bytes memory id = new bytes(i - start);
-                    for (uint256 j = 0; j < id.length; j++) {
-                        id[j] = data[start + j];
-                    }
-                    string memory playerId = string(id);
-                    if (mb.playerToFaction[playerId] == Faction.Unknown) {
-                        mb.playerToFaction[playerId] = faction;
-                        count++;
-                    }
-                }
-                start = i + 1;
-            }
-        }
-        return count;
-    }
-
-    /**
      * Refunds bets that have invalid parameters, such as a player not belonging to the correct faction based on the data from the faceit API
      * @param mb The match bet to clean
      */
@@ -616,7 +582,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function withdraw(string memory playerId) external nonReentrant {
         uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
-        if (winningsAmount <= 0) {
+        if (winningsAmount == 0) {
             revert FragBoxBetting__NoWinnings();
         }
         playerToWinnings[playerId][msg.sender] -= winningsAmount;
@@ -630,11 +596,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Gets the price of ETH in USD
-     * @return The price of ETH
+     * @return The price of ETH in USD wei
      */
-    function getEthUsdPrice() public view returns (int256) {
+    function getEthUsdPrice() public view returns (uint256) {
         (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
-        return price;
+        return SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION;
     }
 
     /**
@@ -643,7 +609,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @return uint256 The $ amount equivalent of input parameter amount
      */
     function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
-        return (SafeCast.toUint256(getEthUsdPrice()) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION;
+        return (getEthUsdPrice() * amount) / PRECISION;
     }
 
     /**
@@ -684,5 +650,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      */
     function getPlayerFaction(bytes32 matchKey, string calldata playerId) external view returns (Faction) {
         return matchBets[matchKey].playerToFaction[playerId];
+    }
+
+    /**
+     * Gets the amount of winnings a player has earned but hasn't withdrawn in wei
+     * @param playerId The player who earned the winnings and is associated with the msg.sender
+     * @return The winnings in wei
+     */
+    function getWinnings(string calldata playerId) external view returns (uint256) {
+        return playerToWinnings[playerId][msg.sender];
     }
 }

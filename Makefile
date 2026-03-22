@@ -20,11 +20,11 @@ remove :; rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gi
 
 install :; forge install smartcontractkit/chainlink-brownie-contracts@1.3.0 && forge install Cyfrin/foundry-devops@0.4.0 && forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 
 
-test :; forge test --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi
+test :; forge test --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi -vv
 
-coverage :; forge coverage --report debug > coverage-report.txt
+coverage :; forge coverage --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi # --report debug > coverage-report.txt
 
-snapshot :; forge snapshot
+snapshot :; forge snapshot --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi
 
 format :; forge fmt
 
