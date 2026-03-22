@@ -396,7 +396,27 @@ contract FragBoxBettingTest is Test {
 
     function testEmergencyRefundAfterTimeout() public {
         // deposit, advance time >24h, call emergencyRefund
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, PLAYERID, FACTION);
+
+        // Validate roster
+        _startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, PLAYERID);
+        bytes32 rosterId = _captureRequestId();
+        _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY), "");
+
+        vm.startPrank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__TimeoutNotReached.selector);
+        fragBoxBetting.emergencyRefund(MATCHID);
+        vm.warp(block.timestamp + 25 hours);
+        fragBoxBetting.emergencyRefund(MATCHID);
+
         // then player calls withdraw() and gets full amount back
+        uint256 balBefore = USER.balance;
+        fragBoxBetting.withdraw(PLAYERID);
+        vm.stopPrank();
+        assertEq(USER.balance, balBefore);
     }
 
     function testNoOneBetOnWinner_AllRefunded() public {
