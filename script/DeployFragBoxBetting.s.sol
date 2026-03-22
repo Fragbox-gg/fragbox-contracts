@@ -16,7 +16,8 @@ contract DeployFragBoxBetting is Script {
             address chainLinkFunctionsRouter,
             bytes32 donId,
             uint64 subscriptionId,
-            address linkToken
+            address linkToken,
+            uint64 donHostedSecretsVersion
         ) = helperConfig.activeNetworkConfig();
 
         IFunctionsSubscriptions functionsSubscriptions = IFunctionsSubscriptions(chainLinkFunctionsRouter);
@@ -27,7 +28,7 @@ contract DeployFragBoxBetting is Script {
         FragBoxBetting fragBoxBetting =
             new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, linkToken);
 
-        fragBoxBetting.updateDonSecrets(0, 1);
+        fragBoxBetting.updateDonSecrets(0, donHostedSecretsVersion);
 
         functionsSubscriptions.addConsumer(subscriptionId, address(fragBoxBetting));
 

@@ -38,8 +38,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     // Called ONCE by backend — returns roster + initial status
     string private constant ROSTER_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = secrets.apiKey;"
-        "if (!apiKey) throw Error('No API key');"
-        "const res = await Functions.makeHttpRequest({" "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "if (!apiKey) throw Error('No API key');" "const res = await Functions.makeHttpRequest({"
+        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
         "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
         "if (res.error) throw Error('Faceit API error');" "const data = res.data;" "let f1 = '';" "let f2 = '';"
         "if (data.teams?.faction1?.roster) {" "  f1 = data.teams.faction1.roster.map(p => p.player_id).join(',');" "}"
@@ -49,8 +49,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     // Called REPEATEDLY by backend — status + winner only
     string private constant STATUS_SOURCE_TEMPLATE = "const matchId = args[0];" "const apiKey = secrets.apiKey;"
-        "if (!apiKey) throw Error('No API key');"
-        "const res = await Functions.makeHttpRequest({" "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
+        "if (!apiKey) throw Error('No API key');" "const res = await Functions.makeHttpRequest({"
+        "  url: `https://open.faceit.com/data/v4/matches/${matchId}`,"
         "  headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${apiKey}` }" "});"
         "if (res.error) throw Error('Faceit API error');" "const data = res.data;"
         "const status = data.status || 'UNKNOWN';" "let winner = 'unknown';"
@@ -121,9 +121,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     event RosterUpdated(bytes32 indexed matchKey, uint256 playerCount);
 
     uint8 private donHostedSecretsSlotId;
-    uint8 private donHostedSecretsVersion;
+    uint64 private donHostedSecretsVersion;
 
-    function updateDonSecrets(uint8 _slotId, uint8 _version) external onlyOwner {
+    function updateDonSecrets(uint8 _slotId, uint64 _version) external onlyOwner {
         donHostedSecretsSlotId = _slotId;
         donHostedSecretsVersion = _version;
     }
