@@ -221,10 +221,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @param key The value you're looking for
      * @return The boolean value associated with the key inside of the json if it exists
      */
-    function _getJsonBool(
-        string memory json,
-        string memory key
-    ) internal pure returns (bool) {
+    function _getJsonBool(string memory json, string memory key) internal pure returns (bool) {
         string memory raw = _extractRawJsonValue(json, key);
         if (bytes(raw).length == 0) return false;
 
@@ -308,7 +305,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.playerToFaction[playerId] != Faction.Unknown) revert FragBoxBetting__RosterAlreadyRequested(matchKey, playerId);
+        if (mb.playerToFaction[playerId] != Faction.Unknown) {
+            revert FragBoxBetting__RosterAlreadyRequested(matchKey, playerId);
+        }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         FunctionsRequest.Request memory req;
@@ -402,10 +401,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 betsLength = mb.bets.length;
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
-            if (
-                bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId)
-                    && bet.faction == chosenFaction
-            ) {
+            if (bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId) && bet.faction == chosenFaction) {
                 bet.amount += betAmount;
                 betExists = true;
                 break;
