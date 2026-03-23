@@ -109,6 +109,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
 
+    /**
+     * Specifies the necessary parameters to use chainlink functions DON-hosted secrets (faceit API key)
+     * @param _slotId The slotId associated with the secret
+     * @param _version The version of the secret
+     */
     function updateDonSecrets(uint8 _slotId, uint64 _version) external onlyOwner {
         donHostedSecretsSlotId = _slotId;
         donHostedSecretsVersion = _version;
@@ -500,7 +505,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (!_compareStrings(mb.status, "FINISHED")) {
             revert FragBoxBetting__MatchNotFinished();
         }
-        
+
         _cleanInvalidBets();
 
         uint256 totalWinningBet = 0;
