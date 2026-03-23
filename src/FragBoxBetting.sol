@@ -11,6 +11,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
@@ -19,6 +20,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__TimeoutNotReached();
     error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall(uint256 amount);
+    error FragBoxBetting__BetTooLarge(uint256 amount);
     error FragBoxBetting__RosterAlreadyRequested(bytes32 matchKey, string playerId);
     error FragBoxBetting__InvalidFaction(string factionStr);
     error FragBoxBetting__MatchIsFinishedOrOngoing();
@@ -39,7 +41,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
+    uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
+    uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
     uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
 
@@ -426,7 +429,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
-        if (getUsdValueOfEth(msg.value) < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
+        uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
+        if (usdValueOfEth < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
+        if (usdValueOfEth > MAX_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooLarge(msg.value);
 
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
