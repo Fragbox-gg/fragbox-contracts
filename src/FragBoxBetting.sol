@@ -27,6 +27,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
+    error FragBoxBetting__RosterUpdateTooSoon();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -39,6 +40,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
+    uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
 
     enum Faction {
         Unknown,
@@ -64,6 +66,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalFeesCollected;
 
         mapping(string playerId => Faction playerFaction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
+        mapping(string playerId => uint256 lastRosterUpdate) playerToLastRosterUpdate;
         uint256 lastRosterUpdate; // timestamp of last successful update
 
         string status; // "READY", "ONGOING", "FINISHED"
@@ -282,6 +285,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
+        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerId] + ROSTER_UPDATE_COOLDOWN) {
+            revert FragBoxBetting__RosterUpdateTooSoon();
+        }
+
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETROSTER);
 
@@ -396,7 +403,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.totalFeesCollected += fee;
 
         emit BetPlaced(matchKey, msg.sender, betAmount, playerId);
-        
+
         if (!rosterHasBeenValidated) {
             updateMatchRoster(matchIdStr, playerId);
         }
@@ -431,7 +438,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (_compareStrings(responseType, "roster")) {
             string memory playerId = _getJsonString(json, "playerId");
             bool playerValid = _getJsonBool(json, "valid");
-            
+
             if (!playerValid) {
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
                 return;
@@ -449,7 +456,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         } else if (_compareStrings(responseType, "status")) {
             string memory status = _getJsonString(json, "status");
             string memory winner = _getJsonString(json, "winner");
-            
+
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
 
