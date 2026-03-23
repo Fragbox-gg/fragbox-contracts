@@ -513,7 +513,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             for (uint256 i = 0; i < betsLength; i++) {
                 Bet storage bet = mb.bets[i];
 
-                if (bet.faction == Faction.Unknown || mb.playerToFaction == Faction.Unknown) { continue; }
+                if (bet.faction == Faction.Unknown || mb.playerToFaction[bet.playerId] == Faction.Unknown) { continue; }
 
                 if (bet.amount > 0) {
                     playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
@@ -538,7 +538,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
 
-            if (bet.faction == Faction.Unknown || mb.playerToFaction == Faction.Unknown) { continue; }
+            if (bet.faction == Faction.Unknown || mb.playerToFaction[bet.playerId] == Faction.Unknown) { continue; }
 
             if (bet.faction == mb.winnerFaction && bet.amount > 0) {
                 // Proportional payout: (my bet / total winning bets) * entire pot
