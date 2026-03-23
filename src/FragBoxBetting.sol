@@ -574,7 +574,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         // Sweep only this match's rounding dust to owner (safe for concurrent matches)
         if (remainder > 0) {
             Address.sendValue(payable(owner()), remainder);
-            emit DustSwept(matchKey, remainder);  // optional but recommended
+            emit DustSwept(matchKey, remainder); // optional but recommended
         }
 
         mb.claimed = true;
