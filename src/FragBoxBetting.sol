@@ -106,6 +106,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
+    event DustSwept(bytes32 indexed matchKey, uint256 amount);
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
@@ -508,7 +509,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__MatchNotFinished();
         }
 
-        _cleanInvalidBets();
+        _cleanInvalidBets(mb);
 
         uint256 totalWinningBet = 0;
         uint256 betsLength = mb.bets.length;
@@ -551,6 +552,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalPot = mb.totalBetAmount;
 
         // Second pass: Distribute winnings proportionally
+        uint256 remainder = totalPot;
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
 
@@ -562,10 +564,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
                 if (payout > 0) {
                     playerToWinnings[bet.playerId][bet.wallet] += payout;
+                    remainder -= payout;
                 }
 
                 bet.amount = 0; // Prevent double payout for this bet
             }
+        }
+
+        // Sweep only this match's rounding dust to owner (safe for concurrent matches)
+        if (remainder > 0) {
+            Address.sendValue(payable(owner()), remainder);
+            emit DustSwept(matchKey, remainder);  // optional but recommended
         }
 
         mb.claimed = true;
