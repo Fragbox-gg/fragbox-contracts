@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 contract FragBoxBettingTest is Test {
     FragBoxBetting fragBoxBetting;
@@ -333,6 +334,21 @@ contract FragBoxBettingTest is Test {
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
         vm.stopPrank();
+    }
+
+    function testPausableDeposit() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.pause();
+
+        vm.prank(USER);
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.unpause();
+
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
     }
 
     /* -------------------------------------------------------------------------- */

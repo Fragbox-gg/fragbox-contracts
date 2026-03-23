@@ -10,8 +10,9 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
+contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
     error FragBoxBetting__MatchNotResolved(bytes32 matchKey);
     error FragBoxBetting__NoBetsPlaced(bytes32 matchKey);
@@ -61,7 +62,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         Faction winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
         bool resolved; // this is true when a victor has been set/the match has finished
         bool claimed; // this is true when a match's bets have been paid out
-        bytes32 requestId;
+        bytes32 statusRequestId;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
 
@@ -79,7 +80,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         Faction winnerFaction;
         bool resolved;
         bool claimed;
-        bytes32 requestId;
+        bytes32 statusRequestId;
         uint256 totalBetAmount;
         uint256 totalFeesCollected;
         uint256 lastRosterUpdate;
@@ -288,7 +289,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @notice This sends a request to chainlink functions to verify that the playerid and faction are valid (in the match and on the right team)
      * @param matchIdStr The match Id to check
      */
-    function updateMatchRoster(string calldata matchIdStr, string calldata playerId) internal {
+    function updateMatchRoster(string calldata matchIdStr, string calldata playerId) internal whenNotPaused {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -313,7 +314,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
-        mb.requestId = requestId;
         requestToMatchKey[requestId] = matchKey;
         emit RequestSent(requestId, matchKey);
     }
@@ -323,7 +323,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external {
+    function updateMatchStatus(string calldata matchIdStr) external whenNotPaused {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -345,7 +345,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
-        mb.requestId = requestId;
+        mb.statusRequestId = requestId;
         requestToMatchKey[requestId] = matchKey;
         emit RequestSent(requestId, matchKey);
     }
@@ -360,6 +360,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         external
         payable
         nonReentrant
+        whenNotPaused
     {
         if (getUsdValueOfEth(msg.value) < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
 
@@ -443,7 +444,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         // Request ownership validation (prevents stale data corruption)
         if (_compareStrings(responseType, "status")) {
-            if (mb.requestId != requestId) {
+            if (mb.statusRequestId != requestId) {
                 emit RequestFulfilled(requestId, matchKey, "ERROR", "Stale Status Request Id");
                 return;
             }
@@ -492,7 +493,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * So a player who wagered $20 when their team total is $100 will get 20% of the prize pot
      * @param matchIdStr Match id to check
      */
-    function claim(string calldata matchIdStr) external nonReentrant {
+    function claim(string calldata matchIdStr) external nonReentrant whenNotPaused {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -585,7 +586,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Refund any bets that haven't completed in 24 hours
      * @param matchIdStr The matchId to check the status of
      */
-    function emergencyRefund(string calldata matchIdStr) external nonReentrant {
+    function emergencyRefund(string calldata matchIdStr) external nonReentrant whenNotPaused {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -621,7 +622,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
      * Allows a player to withdraw their winnings from the contract
      * @param playerId The player id the sender wallet is associated with
      */
-    function withdraw(string memory playerId) external nonReentrant {
+    function withdraw(string memory playerId) external nonReentrant whenNotPaused {
         uint256 winningsAmount = playerToWinnings[playerId][msg.sender];
         if (winningsAmount == 0) {
             revert FragBoxBetting__NoWinnings();
@@ -629,6 +630,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         playerToWinnings[playerId][msg.sender] -= winningsAmount;
         Address.sendValue(payable(msg.sender), winningsAmount);
         emit WinningsWithdrawn(playerId, msg.sender, winningsAmount);
+    }
+
+    /* -------------------------------- PAUSABLE -------------------------------- */
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
     }
 
     /* -------------------------------------------------------------------------- */
@@ -674,7 +684,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             winnerFaction: mb.winnerFaction,
             resolved: mb.resolved,
             claimed: mb.claimed,
-            requestId: mb.requestId,
+            statusRequestId: mb.statusRequestId,
             totalBetAmount: mb.totalBetAmount,
             totalFeesCollected: mb.totalFeesCollected,
             lastRosterUpdate: mb.lastRosterUpdate,
