@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 contract FragBoxBettingTest is Test {
     FragBoxBetting fragBoxBetting;
@@ -335,6 +336,21 @@ contract FragBoxBettingTest is Test {
         vm.stopPrank();
     }
 
+    function testPausableDeposit() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.pause();
+
+        vm.prank(USER);
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.unpause();
+
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                    CHAINLINK FUNCTIONS INTEGRATION TESTS                   */
     /* -------------------------------------------------------------------------- */
@@ -463,13 +479,19 @@ contract FragBoxBettingTest is Test {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
-        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
         // This should clean invalid bets
         _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        // 3. Player can now withdraw the refunded amount
+        _startRequestCapture();
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusId = _captureRequestId();
+        _simulateFulfill(statusId, bytes(PROCESSED_STATUS_FINISHED), "");
+
         vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID);
+
+        // 3. Player can now withdraw the refunded amount
         uint256 balBefore = USER.balance;
         fragBoxBetting.withdraw(WINNING_PLAYERID);
         assertEq(USER.balance, balBefore);
