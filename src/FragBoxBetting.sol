@@ -245,6 +245,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 len = mb.bets.length;
         for (uint256 i = 0; i < len; i++) {
             Bet storage bet = mb.bets[i];
+
+            // Ignore players that haven't been validated yet
+            if (mb.playerToLastRosterUpdate[bet.playerId] == 0) continue;
+
             if (bet.amount > 0) {
                 Faction correct = mb.playerToFaction[bet.playerId];
                 if (correct == Faction.Unknown || correct != bet.faction) {
@@ -441,6 +445,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             string memory playerId = _getJsonString(json, "playerId");
             bool playerValid = _getJsonBool(json, "valid");
 
+            mb.playerToLastRosterUpdate[playerId] = block.timestamp;
+
             if (!playerValid) {
                 _cleanInvalidBets(mb);
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
@@ -451,7 +457,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             Faction playerFaction = Faction(SafeCast.toUint8(playerFactionRaw));
 
             mb.playerToFaction[playerId] = playerFaction;
-            mb.playerToLastRosterUpdate[playerId] = block.timestamp;
             mb.lastRosterUpdate = block.timestamp;
 
             _cleanInvalidBets(mb);
