@@ -448,6 +448,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             Faction playerFaction = Faction(SafeCast.toUint8(playerFactionRaw));
 
             mb.playerToFaction[playerId] = playerFaction;
+            mb.playerToLastRosterUpdate[playerId] = block.timestamp;
             mb.lastRosterUpdate = block.timestamp;
 
             _cleanInvalidBets(mb);
