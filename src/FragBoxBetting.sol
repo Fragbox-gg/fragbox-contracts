@@ -442,6 +442,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             bool playerValid = _getJsonBool(json, "valid");
 
             if (!playerValid) {
+                _cleanInvalidBets(mb);
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
                 return;
             }
@@ -499,9 +500,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 betsLength = mb.bets.length;
 
         // First pass: calculate total winning bets
-        for (uint256 i = 0; i < betsLength; i++) {
-            if (mb.bets[i].faction == mb.winnerFaction) {
-                totalWinningBet += mb.bets[i].amount;
+        if (mb.winnerFaction != Faction.Unknown && mb.winnerFaction != Faction.Draw) {
+            for (uint256 i = 0; i < betsLength; i++) {
+                if (mb.bets[i].faction == mb.winnerFaction) {
+                    totalWinningBet += mb.bets[i].amount;
+                }
             }
         }
 
@@ -509,9 +512,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             // If total winning bet is 0 (no one betted on the winning team), then refund all players
             for (uint256 i = 0; i < betsLength; i++) {
                 Bet storage bet = mb.bets[i];
-                uint256 amount = bet.amount;
 
-                if (amount > 0) {
+                if (bet.faction == Faction.Unknown || mb.playerToFaction == Faction.Unknown) { continue; }
+
+                if (bet.amount > 0) {
                     playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
                     bet.amount = 0;
                 }
@@ -533,6 +537,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         // Second pass: Distribute winnings proportionally
         for (uint256 i = 0; i < betsLength; i++) {
             Bet storage bet = mb.bets[i];
+
+            if (bet.faction == Faction.Unknown || mb.playerToFaction == Faction.Unknown) { continue; }
 
             if (bet.faction == mb.winnerFaction && bet.amount > 0) {
                 // Proportional payout: (my bet / total winning bets) * entire pot
