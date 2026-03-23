@@ -568,7 +568,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         uint256 totalPot = mb.totalBetAmount;
 
-        uint i = 0;
+        uint256 i = 0;
         if (totalWinningBet == 0) {
             // No one bet on winner -> refund everyone (loop backwards)
             i = mb.bets.length;
