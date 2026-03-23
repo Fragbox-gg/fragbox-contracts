@@ -500,6 +500,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (!_compareStrings(mb.status, "FINISHED")) {
             revert FragBoxBetting__MatchNotFinished();
         }
+        
+        _cleanInvalidBets();
 
         uint256 totalWinningBet = 0;
         uint256 betsLength = mb.bets.length;
