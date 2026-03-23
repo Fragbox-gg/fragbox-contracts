@@ -99,6 +99,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     string private I_GETSTATUS;
 
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
+    event DepositFeePaid(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
@@ -392,6 +393,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
         // Send fee to owner
         Address.sendValue(payable(owner()), fee);
+        emit DepositFeePaid(matchKey, msg.sender, fee, playerId);
 
         // Check for existing bet with SAME WALLET + SAME PLAYER + SAME FACTION ===
         // If found, just increase the amount (top-up). Otherwise push a new Bet entry.
