@@ -273,7 +273,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
-     * Called ONCE by backend to fetch and store player rosters
+     * Called on first player deposit for a match
+     * @notice This sends a request to chainlink functions to verify that the playerid and faction are valid (in the match and on the right team)
      * @param matchIdStr The match Id to check
      */
     function updateMatchRoster(string calldata matchIdStr, string calldata playerId) internal {
@@ -308,6 +309,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Called REPEATEDLY by backend to update match status
+     * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
     function updateMatchStatus(string calldata matchIdStr) external {
