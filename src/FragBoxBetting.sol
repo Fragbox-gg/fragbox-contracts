@@ -59,12 +59,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
     struct MatchBet {
         Bet[] bets;
+
+        // === GAS OPTIMIZATIONS ===
+        uint256[4] factionTotals; // 1 = Faction1 total, 2 = Faction2, 3 = Draw
+        mapping(bytes32 => uint256) betIndex; // keccak256(wallet, playerId, factionId) => index+1 in bets[]
+
         Faction winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
         bool resolved; // this is true when a victor has been set/the match has finished
         bool claimed; // this is true when a match's bets have been paid out
         bytes32 statusRequestId;
         uint256 totalBetAmount;
-        uint256 totalFeesCollected;
 
         mapping(string playerId => Faction playerFaction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
         mapping(string playerId => uint256 lastRosterUpdate) playerToLastRosterUpdate;
@@ -82,7 +86,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bool claimed;
         bytes32 statusRequestId;
         uint256 totalBetAmount;
-        uint256 totalFeesCollected;
         uint256 lastRosterUpdate;
         string status;
         uint256 lastStatusUpdate;
@@ -100,17 +103,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     string private I_GETSTATUS;
 
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
-    event DepositFeePaid(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
-    event DustSwept(bytes32 indexed matchKey, uint256 amount);
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
+    uint256 private ownerFeesCollected;
 
     /**
      * Specifies the necessary parameters to use chainlink functions DON-hosted secrets (faceit API key)
@@ -246,24 +248,86 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
+     * Creates a composite key for fast O(1) bet lookup/top-up/cleanup
+     * Format: keccak256(wallet, playerId, factionId)
+     * @param wallet The wallet associated with the bet
+     * @param playerId The playerId associated with the bet
+     * @param factionId The faction associated with the bet
+     */
+    function _getBetKey(address wallet, string calldata playerId, uint8 factionId) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(wallet, playerId, factionId));
+    }
+
+    /**
+     * Creates a composite key for fast O(1) bet lookup/top-up/cleanup
+     * Format: keccak256(wallet, playerId, factionId)
+     * @param wallet The wallet associated with the bet
+     * @param playerId The playerId associated with the bet
+     * @param factionId The faction associated with the bet
+     */
+    function _getBetKey(address wallet, string storage playerId, uint8 factionId) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(wallet, playerId, factionId));
+    }
+
+    /**
+     * Performs all the necessary steps to remove a Bet from its parent MatchBet object and refund it to the original bettor
+     * @param mb The parent match bet object
+     * @param index The index of the bet object to remove and refund
+     * @param shouldRefundToBettor Should the original bet amount be allocated to the original bettors winnings?
+     */
+    function _removeBet(MatchBet storage mb, uint256 index, bool shouldRefundToBettor) internal {
+        Bet storage bet = mb.bets[index];
+        uint256 betAmount = bet.amount;
+
+        if (betAmount == 0) {
+            delete mb.betIndex[_getBetKey(bet.wallet, bet.playerId, uint8(bet.faction))];
+            return;
+        }
+
+        uint8 fId = uint8(bet.faction);
+        bytes32 betKey = _getBetKey(bet.wallet, bet.playerId, fId);
+
+        mb.factionTotals[fId] -= betAmount;
+        mb.totalBetAmount -= betAmount;
+
+        // Refund logic
+        if (shouldRefundToBettor) {
+            playerToWinnings[bet.playerId][bet.wallet] += betAmount;
+        }
+
+        // Cleanup
+        delete mb.betIndex[betKey];
+        delete mb.bets[index]; // zero the slot before swap
+
+        // Swap-and-pop to keep array tight
+        uint256 lastIndex = mb.bets.length - 1;
+        if (index != lastIndex) {
+            mb.bets[index] = mb.bets[lastIndex];
+            // Update the moved bet's index in the mapping
+            bytes32 movedKey = _getBetKey(mb.bets[index].wallet, mb.bets[index].playerId, uint8(mb.bets[index].faction));
+            mb.betIndex[movedKey] = index + 1; // 1-based
+        }
+        mb.bets.pop();
+
+        // Zero the original bet (already done by pop)
+    }
+
+    /**
      * Refunds bets that have invalid parameters, such as a player not belonging to the correct faction based on the data from the faceit API
      * @param mb The match bet to clean
      */
     function _cleanInvalidBets(MatchBet storage mb) internal {
-        uint256 len = mb.bets.length;
-        for (uint256 i = 0; i < len; i++) {
+        uint256 i = mb.bets.length;
+        while (i > 0) {
+            i--;
             Bet storage bet = mb.bets[i];
 
             // Ignore players that haven't been validated yet
             if (mb.playerToLastRosterUpdate[bet.playerId] == 0) continue;
 
-            if (bet.amount > 0) {
-                Faction correct = mb.playerToFaction[bet.playerId];
-                if (correct == Faction.Unknown || correct != bet.faction) {
-                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
-                    mb.totalBetAmount -= bet.amount;
-                    bet.amount = 0; // ignored forever in claim/refund
-                }
+            Faction correct = mb.playerToFaction[bet.playerId];
+            if (correct == Faction.Unknown || correct != bet.faction) {
+                _removeBet(mb, i, true); // safe because we go backwards
             }
         }
     }
@@ -394,28 +458,25 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 betAmount = msg.value - fee;
 
         // Send fee to owner
-        Address.sendValue(payable(owner()), fee);
-        emit DepositFeePaid(matchKey, msg.sender, fee, playerId);
+        ownerFeesCollected += fee;
 
-        // Check for existing bet with SAME WALLET + SAME PLAYER + SAME FACTION ===
-        // If found, just increase the amount (top-up). Otherwise push a new Bet entry.
-        bool betExists = false;
-        uint256 betsLength = mb.bets.length;
-        for (uint256 i = 0; i < betsLength; i++) {
-            Bet storage bet = mb.bets[i];
-            if (bet.wallet == msg.sender && _compareStrings(bet.playerId, playerId) && bet.faction == chosenFaction) {
-                bet.amount += betAmount;
-                betExists = true;
-                break;
-            }
-        }
+        // O(1) lookup for top-up (much cheaper than nested mapping)
+        uint8 fId = uint8(chosenFaction);
+        bytes32 betKey = _getBetKey(msg.sender, playerId, fId);
+        uint256 existingIdx = mb.betIndex[betKey];
 
-        if (!betExists) {
+        if (existingIdx > 0) {
+            // Top-up existing bet
+            mb.bets[existingIdx - 1].amount += betAmount;
+        } else {
+            // New bet
             mb.bets.push(Bet({wallet: msg.sender, playerId: playerId, faction: chosenFaction, amount: betAmount}));
+            mb.betIndex[betKey] = mb.bets.length; // 1-based index
         }
 
+        // Update totals
+        mb.factionTotals[fId] += betAmount;
         mb.totalBetAmount += betAmount;
-        mb.totalFeesCollected += fee;
 
         emit BetPlaced(matchKey, msg.sender, betAmount, playerId);
 
@@ -457,7 +518,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.playerToLastRosterUpdate[playerId] = block.timestamp;
 
             if (!playerValid) {
-                _cleanInvalidBets(mb);
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
                 return;
             }
@@ -467,8 +527,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             mb.playerToFaction[playerId] = playerFaction;
             mb.lastRosterUpdate = block.timestamp;
-
-            _cleanInvalidBets(mb);
 
             emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
@@ -497,85 +555,62 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (!mb.resolved) {
-            revert FragBoxBetting__MatchNotResolved(matchKey);
-        }
-        if (mb.claimed) {
-            revert FragBoxBetting__MatchAlreadyResolved(matchKey);
-        }
-        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
-            revert FragBoxBetting__MatchNotRequested();
-        }
-        if (!_compareStrings(mb.status, "FINISHED")) {
-            revert FragBoxBetting__MatchNotFinished();
-        }
+        if (!mb.resolved) revert FragBoxBetting__MatchNotResolved(matchKey);
+        if (mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) revert FragBoxBetting__MatchNotRequested();
+        if (!_compareStrings(mb.status, "FINISHED")) revert FragBoxBetting__MatchNotFinished();
 
-        _cleanInvalidBets(mb);
+        _cleanInvalidBets(mb); // one pass to clean invalids
 
-        uint256 totalWinningBet = 0;
-        uint256 betsLength = mb.bets.length;
-
-        // First pass: calculate total winning bets
-        if (mb.winnerFaction != Faction.Unknown && mb.winnerFaction != Faction.Draw) {
-            for (uint256 i = 0; i < betsLength; i++) {
-                if (mb.bets[i].faction == mb.winnerFaction) {
-                    totalWinningBet += mb.bets[i].amount;
-                }
-            }
-        }
-
-        if (totalWinningBet == 0) {
-            // If total winning bet is 0 (no one betted on the winning team), then refund all players
-            for (uint256 i = 0; i < betsLength; i++) {
-                Bet storage bet = mb.bets[i];
-
-                if (bet.faction == Faction.Unknown || mb.playerToFaction[bet.playerId] == Faction.Unknown) {
-                    continue;
-                }
-
-                if (bet.amount > 0) {
-                    playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
-                    bet.amount = 0;
-                }
-            }
-
-            mb.claimed = true;
-            emit MatchClaimed(matchKey);
-            return;
-        }
-
-        if (mb.totalBetAmount == 0) {
-            mb.claimed = true;
-            emit MatchClaimed(matchKey);
-            return;
-        }
+        uint256 totalWinningBet = (mb.winnerFaction == Faction.Unknown || mb.winnerFaction == Faction.Draw)
+            ? 0
+            : mb.factionTotals[uint8(mb.winnerFaction)];
 
         uint256 totalPot = mb.totalBetAmount;
 
-        // Second pass: Distribute winnings proportionally
-        uint256 remainder = totalPot;
-        for (uint256 i = 0; i < betsLength; i++) {
-            Bet storage bet = mb.bets[i];
-
-            if (bet.faction == Faction.Unknown || mb.playerToFaction[bet.playerId] == Faction.Unknown) continue;
-
-            if (bet.faction == mb.winnerFaction && bet.amount > 0) {
-                // Proportional payout: (my bet / total winning bets) * entire pot
-                uint256 payout = (bet.amount * totalPot) / totalWinningBet;
-
-                if (payout > 0) {
-                    playerToWinnings[bet.playerId][bet.wallet] += payout;
-                    remainder -= payout;
-                }
-
-                bet.amount = 0; // Prevent double payout for this bet
+        uint i = 0;
+        if (totalWinningBet == 0) {
+            // No one bet on winner -> refund everyone (loop backwards)
+            i = mb.bets.length;
+            while (i > 0) {
+                i--;
+                _removeBet(mb, i, true);
             }
+            mb.claimed = true;
+            emit MatchClaimed(matchKey);
+            return;
         }
 
-        // Sweep only this match's rounding dust to owner (safe for concurrent matches)
+        if (totalPot == 0) {
+            mb.claimed = true;
+            emit MatchClaimed(matchKey);
+            return;
+        }
+
+        // Single pass payout + cleanup
+        uint256 remainder = totalPot;
+        i = mb.bets.length;
+        while (i > 0) {
+            i--;
+            Bet storage bet = mb.bets[i];
+
+            if (bet.faction != mb.winnerFaction || bet.amount == 0) {
+                // non-winner or already zeroed -> remove it
+                _removeBet(mb, i, false);
+                continue;
+            }
+
+            // Winner bet -> proportional payout
+            uint256 payout = (bet.amount * totalPot) / totalWinningBet;
+            if (payout > 0) {
+                playerToWinnings[bet.playerId][bet.wallet] += payout;
+                remainder -= payout;
+            }
+            _removeBet(mb, i, false); // this also zeros and removes from array
+        }
+
         if (remainder > 0) {
-            Address.sendValue(payable(owner()), remainder);
-            emit DustSwept(matchKey, remainder); // optional but recommended
+            ownerFeesCollected += remainder;
         }
 
         mb.claimed = true;
@@ -601,15 +636,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         // Refund all bets
-        uint256 betsLength = mb.bets.length;
-        for (uint256 i = 0; i < betsLength; i++) {
-            Bet storage bet = mb.bets[i];
-            uint256 amount = bet.amount;
-
-            if (amount > 0) {
-                playerToWinnings[bet.playerId][bet.wallet] += bet.amount;
-                bet.amount = 0;
-            }
+        uint256 i = mb.bets.length;
+        while (i > 0) {
+            i--;
+            _removeBet(mb, i, true);
         }
 
         mb.resolved = true;
@@ -630,6 +660,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         playerToWinnings[playerId][msg.sender] -= winningsAmount;
         Address.sendValue(payable(msg.sender), winningsAmount);
         emit WinningsWithdrawn(playerId, msg.sender, winningsAmount);
+    }
+
+    /**
+     * Allows the owner to withdraw collected deposit fees
+     */
+    function withdrawOwnerFees() external onlyOwner {
+        uint256 amount = ownerFeesCollected;
+        ownerFeesCollected = 0;
+        Address.sendValue(payable(owner()), amount);
     }
 
     /* -------------------------------- PAUSABLE -------------------------------- */
@@ -686,7 +725,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             claimed: mb.claimed,
             statusRequestId: mb.statusRequestId,
             totalBetAmount: mb.totalBetAmount,
-            totalFeesCollected: mb.totalFeesCollected,
             lastRosterUpdate: mb.lastRosterUpdate,
             status: mb.status,
             lastStatusUpdate: mb.lastStatusUpdate

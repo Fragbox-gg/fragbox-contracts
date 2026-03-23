@@ -22,7 +22,7 @@ install :; forge install smartcontractkit/chainlink-brownie-contracts@1.3.0 && f
 
 test :; forge test --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi -vv
 
-coverage :; forge coverage --ir-minimum  --fork-url $(BASE_SEPOLIA_RPC_URL) # --report debug > coverage-report.txt
+coverage :; forge coverage --ir-minimum --fork-url $(BASE_SEPOLIA_RPC_URL) # --report debug > coverage-report.txt
 
 snapshot :; forge snapshot --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi
 
