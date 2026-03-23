@@ -28,7 +28,7 @@ async function main() {
   } else if (!isSilent) {
     console.log('Commands:');
     console.log('  offline <filename>');
-    console.log('  real <matchId> --api-key=xxx');
+    console.log('  real <matchId> --api-key=xxx <playerId>');
   }
 }
 
