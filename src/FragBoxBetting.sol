@@ -20,13 +20,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     error FragBoxBetting__BetTooSmall(uint256 amount);
     error FragBoxBetting__RosterAlreadyRequested(bytes32 matchKey, string playerId);
     error FragBoxBetting__InvalidFaction(string factionStr);
-    error FragBoxBetting__MatchNotReady();
+    error FragBoxBetting__MatchIsFinishedOrOngoing();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__InvalidRequest(bytes32 requestId);
     error FragBoxBetting__PlayerNotInMatch(string matchId, string playerId);
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
+    error FragBoxBetting__RosterUpdateTooSoon();
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -39,6 +40,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
+    uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
 
     enum Faction {
         Unknown,
@@ -64,6 +66,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         uint256 totalFeesCollected;
 
         mapping(string playerId => Faction playerFaction) playerToFaction; // playerId => Faction (Unknown = invalid/not present)
+        mapping(string playerId => uint256 lastRosterUpdate) playerToLastRosterUpdate;
         uint256 lastRosterUpdate; // timestamp of last successful update
 
         string status; // "READY", "ONGOING", "FINISHED"
@@ -270,10 +273,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
     }
 
     /**
-     * Called ONCE by backend to fetch and store player rosters
+     * Called on first player deposit for a match
+     * @notice This sends a request to chainlink functions to verify that the playerid and faction are valid (in the match and on the right team)
      * @param matchIdStr The match Id to check
      */
-    function updateMatchRoster(string calldata matchIdStr, string calldata playerId) external onlyOwner {
+    function updateMatchRoster(string calldata matchIdStr, string calldata playerId) internal {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -281,6 +285,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__RosterAlreadyRequested(matchKey, playerId);
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
+
+        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerId] + ROSTER_UPDATE_COOLDOWN) {
+            revert FragBoxBetting__RosterUpdateTooSoon();
+        }
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETROSTER);
@@ -301,6 +309,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
 
     /**
      * Called REPEATEDLY by backend to update match status
+     * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
     function updateMatchStatus(string calldata matchIdStr) external {
@@ -310,7 +319,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         if (mb.resolved || mb.claimed) revert FragBoxBetting__MatchAlreadyResolved(matchKey);
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
+        if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
             revert FragBoxBetting__StatusUpdateTooSoon();
         }
 
@@ -355,16 +364,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
             revert FragBoxBetting__InvalidFaction(factionStr);
         }
 
-        if (
-            !_compareStrings(mb.status, "") && !_compareStrings(mb.status, "READY")
-                && !_compareStrings(mb.status, "VOTING")
-        ) {
-            revert FragBoxBetting__MatchNotReady();
+        if (_compareStrings(mb.status, "ONGOING") || _compareStrings(mb.status, "FINISHED")) {
+            revert FragBoxBetting__MatchIsFinishedOrOngoing();
         }
 
-        // Hard validation - only revert after roster has been fetched at least once (covers both "not present" and "wrong faction")
+        // Hard validation - only revert after roster has been fetched at least once. If faction is wrong this bet will be destroyed later in fulfillRequest
         Faction actual = mb.playerToFaction[playerId];
-        if (actual != Faction.Unknown && actual != chosenFaction) {
+        bool rosterHasBeenValidated = true;
+        if (actual == Faction.Unknown) {
+            rosterHasBeenValidated = false;
+        } else if (actual != chosenFaction) {
             revert FragBoxBetting__PlayerNotInMatch(matchIdStr, playerId);
         }
 
@@ -396,6 +405,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         mb.totalFeesCollected += fee;
 
         emit BetPlaced(matchKey, msg.sender, betAmount, playerId);
+
+        if (!rosterHasBeenValidated) {
+            updateMatchRoster(matchIdStr, playerId);
+        }
     }
 
     /**
@@ -408,48 +421,45 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
         bytes32 matchKey = requestToMatchKey[requestId];
         MatchBet storage mb = matchBets[matchKey];
 
-        // Request ownership validation (prevents cross-match corruption)
-        if (mb.requestId != requestId) {
-            emit RequestFulfilled(requestId, matchKey, "ERROR", "Invalid Request Id");
-            return;
-        }
-
         if (err.length > 0) {
             emit RequestFulfilled(requestId, matchKey, "ERROR", string(err));
             return;
         }
 
         string memory json = string(response);
-
         string memory responseType = _getJsonString(json, "type");
-        string memory status = _getJsonString(json, "status");
-        string memory winner = _getJsonString(json, "winner");
-        string memory playerId = _getJsonString(json, "playerId");
-        uint256 playerFactionRaw = _getJsonUint(json, "faction");
-        bool playerValid = _getJsonBool(json, "valid");
 
-        Faction playerFaction = Faction(SafeCast.toUint8(playerFactionRaw));
+        // Request ownership validation (prevents stale data corruption)
+        if (_compareStrings(responseType, "status")) {
+            if (mb.requestId != requestId) {
+                emit RequestFulfilled(requestId, matchKey, "ERROR", "Stale Status Request Id");
+                return;
+            }
+        }
 
         if (_compareStrings(responseType, "roster")) {
+            string memory playerId = _getJsonString(json, "playerId");
+            bool playerValid = _getJsonBool(json, "valid");
+
             if (!playerValid) {
                 emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
                 return;
             }
 
-            mb.playerToFaction[playerId] = playerFaction;
-            mb.status = status;
-            mb.lastRosterUpdate = block.timestamp;
-            mb.lastStatusUpdate = block.timestamp;
+            uint256 playerFactionRaw = _getJsonUint(json, "faction");
+            Faction playerFaction = Faction(SafeCast.toUint8(playerFactionRaw));
 
-            if (_compareStrings(status, "FINISHED")) {
-                mb.winnerFaction = _toFaction(winner);
-                mb.resolved = true;
-            }
+            mb.playerToFaction[playerId] = playerFaction;
+            mb.playerToLastRosterUpdate[playerId] = block.timestamp;
+            mb.lastRosterUpdate = block.timestamp;
 
             _cleanInvalidBets(mb);
 
             emit RosterUpdated(matchKey, playerId, playerFaction);
         } else if (_compareStrings(responseType, "status")) {
+            string memory status = _getJsonString(json, "status");
+            string memory winner = _getJsonString(json, "winner");
+
             mb.status = status;
             mb.lastStatusUpdate = block.timestamp;
 
@@ -457,9 +467,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient {
                 mb.winnerFaction = _toFaction(winner);
                 mb.resolved = true;
             }
-        }
 
-        emit RequestFulfilled(requestId, matchKey, status, winner);
+            emit RequestFulfilled(requestId, matchKey, status, winner);
+        }
     }
 
     /**

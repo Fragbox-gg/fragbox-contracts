@@ -342,8 +342,8 @@ contract FragBoxBettingTest is Test {
         bytes32 matchKey = fragBoxBetting.getMatchKey(MATCHID);
 
         _startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
         bytes32 requestId = _captureRequestId();
 
         bytes memory response = bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER);
@@ -355,9 +355,9 @@ contract FragBoxBettingTest is Test {
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertTrue(fragBoxBetting.getPlayerFaction(matchKey, WINNING_PLAYERID) == FragBoxBetting.Faction.Faction1);
-        assertEq(mb.status, "READY");
+        assertEq(mb.status, "");
         assertEq(mb.lastRosterUpdate, block.timestamp);
-        assertEq(mb.lastStatusUpdate, block.timestamp);
+        assertEq(mb.lastStatusUpdate, 0);
     }
 
     function test_FulfillStatusUpdate_Ongoing() public {
@@ -366,7 +366,8 @@ contract FragBoxBettingTest is Test {
         // 1. Roster first
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
@@ -392,16 +393,9 @@ contract FragBoxBettingTest is Test {
         // Roster first
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
-
-        // This should revert because we didn't warp the timestamp forward 5 minutes
-        vm.prank(fragBoxBetting.owner());
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
-        fragBoxBetting.updateMatchStatus(MATCHID);
-
-        vm.warp(block.timestamp + 6 minutes);
 
         // Finished status (uses "faction2" from your real JSON)
         _startRequestCapture();
@@ -425,7 +419,8 @@ contract FragBoxBettingTest is Test {
     function test_FulfillRequest_ErrorPath_FromOracle() public {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
 
         bytes memory err = bytes("Faceit API error");
@@ -445,7 +440,8 @@ contract FragBoxBettingTest is Test {
     function test_DepositAfterRosterValidated_Succeeds() public {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
         _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
@@ -466,7 +462,8 @@ contract FragBoxBettingTest is Test {
         // 2. Set Match Status To Ready and call roster
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = _captureRequestId();
         // This should clean invalid bets
         _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
@@ -481,15 +478,21 @@ contract FragBoxBettingTest is Test {
 
     function testEmergencyRefundAfterTimeout() public {
         // deposit, advance time >24h, call emergencyRefund
-        vm.prank(USER);
-        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
-
-        // Validate roster
+        vm.startPrank(USER);
         _startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
         bytes32 rosterId = _captureRequestId();
+        vm.stopPrank();
+        // Validate roster
         _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+
+        _startRequestCapture();
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusId = _captureRequestId();
+        _simulateFulfill(statusId, bytes(PROCESSED_STATUS_ONGOING), "");
+
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
+        fragBoxBetting.updateMatchStatus(MATCHID);
 
         vm.startPrank(USER);
         vm.expectRevert(FragBoxBetting.FragBoxBetting__TimeoutNotReached.selector);
@@ -509,15 +512,11 @@ contract FragBoxBettingTest is Test {
 
         // deposit only on losing faction
         vm.startPrank(USER);
-        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, LOSING_PLAYERID, LOSING_FACTION);
-        vm.stopPrank();
-
-        // fulfill status with winner = other faction
-        vm.startPrank(fragBoxBetting.owner());
         _startRequestCapture();
-        fragBoxBetting.updateMatchRoster(MATCHID, LOSING_PLAYERID);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, LOSING_PLAYERID, LOSING_FACTION);
         bytes32 rosterId = _captureRequestId();
         vm.stopPrank();
+        // fulfill status with winner = other faction
         _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
 
         vm.warp(block.timestamp + 6 minutes);
