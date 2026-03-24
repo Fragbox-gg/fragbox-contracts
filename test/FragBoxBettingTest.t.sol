@@ -351,6 +351,13 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
     }
 
+    function testDepositEnforcesMinBetUSD() public {
+        uint256 tooSmallEth = 0.0001 ether; // ~$3 at $3000/ETH
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, tooSmallEth));
+        fragBoxBetting.deposit{value: tooSmallEth}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                    CHAINLINK FUNCTIONS INTEGRATION TESTS                   */
     /* -------------------------------------------------------------------------- */
@@ -568,6 +575,55 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.withdraw(LOSING_PLAYERID);
         vm.stopPrank();
         assertEq(USER.balance, balBefore);
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                 FUZZ TESTS                                 */
+    /* -------------------------------------------------------------------------- */
+    function testFuzz_DepositAndTopUp(uint256 bet1, uint256 bet2) public {
+        bet1 = bound(bet1, 0.01 ether, 1.2 ether);
+        bet2 = bound(bet2, 0.01 ether, 1.2 ether);
+
+        // (your existing mock setup for roster + status would go here)
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: bet1}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: bet2}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+
+        FragBoxBetting.MatchBetView memory vw = fragBoxBetting.getMatchBet(fragBoxBetting.getMatchKey(MATCHID));
+        uint256 bet1Fee = bet1 * 1 / 100;
+        uint256 bet2Fee = bet2 * 1 / 100;
+        uint256 betSum = (bet1 - bet1Fee) + (bet2 - bet2Fee);
+        assertEq(vw.totalBetAmount, betSum); // after 1% fee
+    }
+
+    // function testClaimWithDrawWinnerRefundsAll() public {
+    //     // deposit some on Draw
+    //     vm.prank(USER);
+    //     fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+
+    //     // fulfill status with "draw"
+
+
+    //     // claim
+
+    //     // assert full refund to winnings (or fix this behavior if not intended)
+
+    // }
+
+    /* -------------------------------------------------------------------------- */
+    /*                               INVARIANT TEST                               */
+    /* -------------------------------------------------------------------------- */
+    function invariant_BetTotalsConsistent() public view {
+        // Simple per-match check (expand with a handler for multiple matches)
+        bytes32 key = fragBoxBetting.getMatchKey(MATCHID);
+        FragBoxBetting.MatchBetView memory v = fragBoxBetting.getMatchBet(key);
+
+        uint256 sum = 0;
+        for (uint i = 0; i < v.bets.length; i++) {
+            sum += v.bets[i].amount;
+        }
+        assertEq(sum, v.totalBetAmount); // after any cleans
     }
 
     /* -------------------------------------------------------------------------- */
