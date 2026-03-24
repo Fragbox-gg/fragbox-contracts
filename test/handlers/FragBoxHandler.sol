@@ -48,7 +48,11 @@ contract FragBoxHandler is CommonBase, StdCheats, Test {
         ghost_totalDeposited += amount;
     }
 
-    function updateMatchStatus(uint256 /*actorIdx*/) public {
+    function updateMatchStatus(
+        uint256 /*actorIdx*/
+    )
+        public
+    {
         vm.prank(actors[0]);
         betting.updateMatchStatus(MATCH_ID);
     }
@@ -59,7 +63,11 @@ contract FragBoxHandler is CommonBase, StdCheats, Test {
         betting.claim(MATCH_ID);
     }
 
-    function emergencyRefund(uint256 /*actorIdx*/) public {
+    function emergencyRefund(
+        uint256 /*actorIdx*/
+    )
+        public
+    {
         vm.warp(block.timestamp + 25 hours);
         vm.prank(actors[0]);
         betting.emergencyRefund(MATCH_ID);

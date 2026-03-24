@@ -43,3 +43,37 @@ endif
 
 deploy:
 	@forge script script/DeployFragBoxBetting.s.sol:DeployFragBoxBetting $(NETWORK_ARGS)
+
+
+# ---------------------------------------------------------------------------- #
+#                 CI-friendly targets (used by GitHub Actions)                 #
+# ---------------------------------------------------------------------------- #
+
+# Starts Anvil in background using a generous public RPC (saves your Alchemy quota)
+anvil-ci:
+	@echo "Starting Anvil (publicnode) in background..."
+	anvil --fork-url $(BASE_SEPOLIA_RPC_URL) --no-rate-limit --silent & \
+	echo $$! > anvil.pid
+	sleep 5  # give Anvil time to start
+
+# Runs your regular unit tests (fast, uses offline mode)
+test-unit:
+	@echo "Running unit tests..."
+	forge test --match-contract FragBoxBettingTest --fork-url $(ANVIL_RPC_URL) --ffi -vv
+
+# Runs fuzz tests against local Anvil
+test-fuzz:
+	@echo "Running fuzz tests..."
+	forge test --match-contract FragBoxBettingFuzzTest --ffi --fork-url $(ANVIL_RPC_URL) -vv
+
+# Runs invariant tests against local Anvil
+test-invariant:
+	@echo "Running invariant tests..."
+	forge test --match-contract FragBoxBettingInvariantTest --ffi --fork-url $(ANVIL_RPC_URL) -vv
+
+# Cleanup Anvil (called at the end)
+kill-anvil:
+	@if [ -f anvil.pid ]; then \
+		kill `cat anvil.pid` 2>/dev/null || true; \
+		rm -f anvil.pid; \
+	fi
