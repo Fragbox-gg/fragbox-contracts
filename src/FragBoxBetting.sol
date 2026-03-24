@@ -11,7 +11,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyResolved(bytes32 matchKey);
@@ -31,6 +30,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
+    error FragBoxBetting__NonOwnerFeeRequired(uint256 fee);
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -45,6 +45,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
     uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
+    uint256 public constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
 
     enum Faction {
         Unknown,
@@ -385,12 +386,29 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         emit RequestSent(requestId, matchKey);
     }
 
+    modifier costsFeeOrOwner() {
+        if (msg.sender != owner()) {
+            // Require some ETH is sent (basic protection)
+            if (msg.value == 0) revert FragBoxBetting__NonOwnerFeeRequired(MIN_STATUS_UPDATE_FEE_USD);
+
+            uint256 usdValueWei = getUsdValueOfEth(msg.value);
+            if (usdValueWei < MIN_STATUS_UPDATE_FEE_USD) {
+                revert FragBoxBetting__NonOwnerFeeRequired(MIN_STATUS_UPDATE_FEE_USD);
+            }
+
+            // Accumulate the fee (you could also send to owner instantly, but accumulating is fine)
+            ownerFeesCollected += msg.value;
+        }
+        // No refund logic here — we accept exact or overpayment (common pattern)
+        _;
+    }
+
     /**
      * Called REPEATEDLY by backend to update match status
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external whenNotPaused {
+    function updateMatchStatus(string calldata matchIdStr) external payable whenNotPaused costsFeeOrOwner {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -753,5 +771,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function getWinnings(string calldata playerId) external view returns (uint256) {
         return playerToWinnings[playerId][msg.sender];
+    }
+
+    /**
+     * Gets the amount of owner fees accumulated that hasn't been withdrawn yet
+     * @return The amount in wei
+     */
+    function getOwnerFees() external view onlyOwner returns (uint256) {
+        return ownerFeesCollected;
     }
 }

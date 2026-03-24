@@ -484,6 +484,7 @@ contract FragBoxBettingTest is Test {
         _simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         _startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusId = _captureRequestId();
         _simulateFulfill(statusId, bytes(PROCESSED_STATUS_FINISHED), "");
@@ -509,10 +510,12 @@ contract FragBoxBettingTest is Test {
         _simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
         _startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusId = _captureRequestId();
         _simulateFulfill(statusId, bytes(PROCESSED_STATUS_ONGOING), "");
 
+        vm.prank(fragBoxBetting.owner());
         vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
         fragBoxBetting.updateMatchStatus(MATCHID);
 
@@ -543,7 +546,7 @@ contract FragBoxBettingTest is Test {
 
         vm.warp(block.timestamp + 6 minutes);
 
-        vm.startPrank(USER);
+        vm.startPrank(fragBoxBetting.owner());
         _startRequestCapture();
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusReq = _captureRequestId();
@@ -588,5 +591,14 @@ contract FragBoxBettingTest is Test {
 
     function testGetPlayerFaction() public view {
         fragBoxBetting.getPlayerFaction(fragBoxBetting.getMatchKey(MATCHID), WINNING_PLAYERID);
+    }
+
+    function testGetOwnerFees() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.getOwnerFees();
+
+        vm.expectRevert();
+        vm.prank(USER);
+        fragBoxBetting.getOwnerFees();
     }
 }
