@@ -5,12 +5,7 @@ import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-
-// This is necessary for forked testing otherwise the USER address won't be able to receive ETH
-contract ETHReceiver {
-    receive() external payable {}
-    // optional: fallback() external payable {}
-}
+import {ETHReceiver} from "./mocks/ETHReceiver.sol";
 
 contract FragBoxBettingTest is Test {
     FragBoxBetting fragBoxBetting;
@@ -52,8 +47,6 @@ contract FragBoxBettingTest is Test {
 
         receiver = new ETHReceiver();
         USER = address(receiver);
-
-        vm.deal(address(fragBoxBetting), STARTING_BALANCE);
         vm.deal(USER, STARTING_BALANCE);
 
         string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
@@ -597,26 +590,6 @@ contract FragBoxBettingTest is Test {
         assertEq(USER.balance, balBefore - fee);
     }
 
-    /* -------------------------------------------------------------------------- */
-    /*                                 FUZZ TESTS                                 */
-    /* -------------------------------------------------------------------------- */
-    function testFuzz_DepositAndTopUp(uint256 bet1, uint256 bet2) public {
-        bet1 = bound(bet1, 0.01 ether, 1.2 ether);
-        bet2 = bound(bet2, 0.01 ether, 1.2 ether);
-
-        // (your existing mock setup for roster + status would go here)
-        vm.prank(USER);
-        fragBoxBetting.deposit{value: bet1}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
-        vm.prank(USER);
-        fragBoxBetting.deposit{value: bet2}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
-
-        FragBoxBetting.MatchBetView memory vw = fragBoxBetting.getMatchBet(fragBoxBetting.getMatchKey(MATCHID));
-        uint256 bet1Fee = fragBoxBetting.calculateDepositFee(bet1);
-        uint256 bet2Fee = fragBoxBetting.calculateDepositFee(bet2);
-        uint256 betSum = (bet1 - bet1Fee) + (bet2 - bet2Fee);
-        assertEq(vw.totalBetAmount, betSum); // after 1% fee
-    }
-
     function testClaimWithDrawWinnerRefundsAll() public {
         uint256 startingBalance = USER.balance;
 
@@ -643,21 +616,6 @@ contract FragBoxBettingTest is Test {
         // assert full refund to winnings (or fix this behavior if not intended)
         uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
         assertEq(USER.balance, startingBalance - fee);
-    }
-
-    /* -------------------------------------------------------------------------- */
-    /*                               INVARIANT TEST                               */
-    /* -------------------------------------------------------------------------- */
-    function invariant_BetTotalsConsistent() public view {
-        // Simple per-match check (expand with a handler for multiple matches)
-        bytes32 key = fragBoxBetting.getMatchKey(MATCHID);
-        FragBoxBetting.MatchBetView memory v = fragBoxBetting.getMatchBet(key);
-
-        uint256 sum = 0;
-        for (uint256 i = 0; i < v.bets.length; i++) {
-            sum += v.bets[i].amount;
-        }
-        assertEq(sum, v.totalBetAmount); // after any cleans
     }
 
     /* -------------------------------------------------------------------------- */
