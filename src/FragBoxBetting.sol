@@ -19,6 +19,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__TimeoutNotReached();
     error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall(uint256 amount);
+    error FragBoxBetting__BetTooLarge(uint256 amount);
     error FragBoxBetting__RosterAlreadyRequested(bytes32 matchKey, string playerId);
     error FragBoxBetting__InvalidFaction(string factionStr);
     error FragBoxBetting__MatchIsFinishedOrOngoing();
@@ -29,6 +30,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
+    error FragBoxBetting__NonOwnerFeeRequired(uint256 fee);
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -39,9 +41,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant MIN_BET_AMOUNT_IN_USD = 5;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
     uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
+    uint256 public constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
+    uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
+    uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
 
     enum Faction {
         Unknown,
@@ -382,12 +386,29 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         emit RequestSent(requestId, matchKey);
     }
 
+    modifier costsFeeOrOwner() {
+        if (msg.sender != owner()) {
+            // Require some ETH is sent (basic protection)
+            if (msg.value == 0) revert FragBoxBetting__NonOwnerFeeRequired(MIN_STATUS_UPDATE_FEE_USD);
+
+            uint256 usdValueWei = getUsdValueOfEth(msg.value);
+            if (usdValueWei < MIN_STATUS_UPDATE_FEE_USD) {
+                revert FragBoxBetting__NonOwnerFeeRequired(MIN_STATUS_UPDATE_FEE_USD);
+            }
+
+            // Accumulate the fee (you could also send to owner instantly, but accumulating is fine)
+            ownerFeesCollected += msg.value;
+        }
+        // No refund logic here — we accept exact or overpayment (common pattern)
+        _;
+    }
+
     /**
      * Called REPEATEDLY by backend to update match status
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external whenNotPaused {
+    function updateMatchStatus(string calldata matchIdStr) external payable whenNotPaused costsFeeOrOwner {
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -426,7 +447,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
-        if (getUsdValueOfEth(msg.value) < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
+        uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
+        if (usdValueOfEth < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall(msg.value);
+        if (usdValueOfEth > MAX_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooLarge(msg.value);
 
         bytes32 matchKey = _getMatchKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
@@ -454,7 +477,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         // Calculate house fee and actual bet amount
-        uint256 fee = (msg.value * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
+        uint256 fee = calculateDepositFee(msg.value);
         uint256 betAmount = msg.value - fee;
 
         // Send fee to owner
@@ -748,5 +771,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function getWinnings(string calldata playerId) external view returns (uint256) {
         return playerToWinnings[playerId][msg.sender];
+    }
+
+    /**
+     * Gets the amount of owner fees accumulated that hasn't been withdrawn yet
+     * @return The amount in wei
+     */
+    function getOwnerFees() external view onlyOwner returns (uint256) {
+        return ownerFeesCollected;
+    }
+
+    function calculateDepositFee(uint256 depositAmount) public pure returns (uint256) {
+        return (depositAmount * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
     }
 }

@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      # === Node.js (required for verify-faceit-functions.js) ===
+      # === Node.js (required for your verify-faceit-functions.js) ===
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -45,9 +45,54 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes
 
-      # === Tests ===
-      - name: Run Forge Tests (with Base Sepolia fork)
+  test:
+    name: Run Tests (Unit + Fuzz + Invariant)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JavaScript dependencies
+        run: npm ci --force
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      # === Start Anvil in background (mirrors your local "make anvil") ===
+      - name: Start Anvil (background)
         env:
           BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
-          FACEIT_TEST_MODE: offline # <- Forces offline mode (fast + no API key needed)
-        run: forge test --fork-url $BASE_SEPOLIA_RPC_URL --ffi -vvv
+          FACEIT_TEST_MODE: offline
+        run: make anvil-ci
+
+      # === Your test sequence (exactly like your local workflow) ===
+      - name: Run Unit Tests
+        env:
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          FACEIT_TEST_MODE: offline
+        run: make test-unit
+
+      - name: Run Fuzz Tests
+        env:
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          FACEIT_TEST_MODE: offline
+        run: make test-fuzz
+
+      - name: Run Invariant Tests
+        env:
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          FACEIT_TEST_MODE: offline
+        run: make test-invariant
+
+      # === Cleanup ===
+      - name: Kill Anvil
+        if: always()  # always run, even if tests fail
+        run: make kill-anvil
