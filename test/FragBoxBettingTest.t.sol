@@ -6,11 +6,18 @@ import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
+// This is necessary for forked testing otherwise the USER address won't be able to receive ETH
+contract ETHReceiver {
+    receive() external payable {}
+    // optional: fallback() external payable {}
+}
+
 contract FragBoxBettingTest is Test {
     FragBoxBetting fragBoxBetting;
     address chainLinkFunctionsRouter;
 
-    address public USER = makeAddr("user");
+    address public USER;
+    ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
 
@@ -33,6 +40,7 @@ contract FragBoxBettingTest is Test {
     string private PROCESSED_STATUS_VOTING;
     string private PROCESSED_STATUS_ONGOING;
     string private PROCESSED_STATUS_FINISHED;
+    string private PROCESSED_STATUS_FINISHED_DRAW;
 
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, string playerId, FragBoxBetting.Faction playerFaction);
@@ -41,6 +49,11 @@ contract FragBoxBettingTest is Test {
     function setUp() external {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
         (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
+
+        receiver = new ETHReceiver();
+        USER = address(receiver);
+
+        vm.deal(address(fragBoxBetting), STARTING_BALANCE);
         vm.deal(USER, STARTING_BALANCE);
 
         string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
@@ -51,12 +64,14 @@ contract FragBoxBettingTest is Test {
             PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse("matchFinished.json", "");
+            PROCESSED_STATUS_FINISHED_DRAW = _getProcessedResponse("matchFinishedDraw.json", "");
         } else {
             PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
             PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse(MATCHID, LOSING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse(MATCHID, "");
+            PROCESSED_STATUS_FINISHED_DRAW = _getProcessedResponse(MATCHID, "");
         }
     }
 
@@ -390,7 +405,6 @@ contract FragBoxBettingTest is Test {
         _startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
-        // fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = _captureRequestId();
         _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
@@ -477,6 +491,8 @@ contract FragBoxBettingTest is Test {
     }
 
     function testInvalidBetGetsCleanedAndRefundedViaWithdraw() public {
+        uint256 balBefore = USER.balance;
+
         // 1. Deposit invalid bet (wrong faction)
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, LOSING_FACTION);
@@ -500,13 +516,15 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.claim(MATCHID);
 
         // 3. Player can now withdraw the refunded amount
-        uint256 balBefore = USER.balance;
         fragBoxBetting.withdraw(WINNING_PLAYERID);
-        assertEq(USER.balance, balBefore);
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
+        assertEq(USER.balance, balBefore - fee);
         vm.stopPrank();
     }
 
     function testEmergencyRefundAfterTimeout() public {
+        uint256 balBefore = USER.balance;
+
         // deposit, advance time >24h, call emergencyRefund
         vm.startPrank(USER);
         _startRequestCapture();
@@ -533,13 +551,15 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.emergencyRefund(MATCHID);
 
         // then player calls withdraw() and gets full amount back
-        uint256 balBefore = USER.balance;
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
         fragBoxBetting.withdraw(WINNING_PLAYERID);
         vm.stopPrank();
-        assertEq(USER.balance, balBefore);
+        assertEq(USER.balance, balBefore - fee);
     }
 
     function testNoOneBetOnWinner_AllRefunded() public {
+        uint256 balBefore = USER.balance;
+
         bytes32 matchKey = fragBoxBetting.getMatchKey(MATCHID);
 
         // deposit only on losing faction
@@ -571,10 +591,10 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.claim(MATCHID);
 
         // withdraw succeeds
-        uint256 balBefore = USER.balance;
         fragBoxBetting.withdraw(LOSING_PLAYERID);
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
         vm.stopPrank();
-        assertEq(USER.balance, balBefore);
+        assertEq(USER.balance, balBefore - fee);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -591,25 +611,39 @@ contract FragBoxBettingTest is Test {
         fragBoxBetting.deposit{value: bet2}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
 
         FragBoxBetting.MatchBetView memory vw = fragBoxBetting.getMatchBet(fragBoxBetting.getMatchKey(MATCHID));
-        uint256 bet1Fee = bet1 * 1 / 100;
-        uint256 bet2Fee = bet2 * 1 / 100;
+        uint256 bet1Fee = fragBoxBetting.calculateDepositFee(bet1);
+        uint256 bet2Fee = fragBoxBetting.calculateDepositFee(bet2);
         uint256 betSum = (bet1 - bet1Fee) + (bet2 - bet2Fee);
         assertEq(vw.totalBetAmount, betSum); // after 1% fee
     }
 
-    // function testClaimWithDrawWinnerRefundsAll() public {
-    //     // deposit some on Draw
-    //     vm.prank(USER);
-    //     fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+    function testClaimWithDrawWinnerRefundsAll() public {
+        uint256 startingBalance = USER.balance;
 
-    //     // fulfill status with "draw"
+        // deposit some on Draw
+        _startRequestCapture();
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID, WINNING_FACTION);
+        bytes32 rosterReq = _captureRequestId();
+        _simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
+        // fulfill status with "draw"
+        _startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusReq = _captureRequestId();
+        _simulateFulfill(statusReq, bytes(PROCESSED_STATUS_FINISHED_DRAW), "");
 
-    //     // claim
+        // claim
+        vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
 
-    //     // assert full refund to winnings (or fix this behavior if not intended)
-
-    // }
+        // assert full refund to winnings (or fix this behavior if not intended)
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
+        assertEq(USER.balance, startingBalance - fee);
+    }
 
     /* -------------------------------------------------------------------------- */
     /*                               INVARIANT TEST                               */
@@ -620,7 +654,7 @@ contract FragBoxBettingTest is Test {
         FragBoxBetting.MatchBetView memory v = fragBoxBetting.getMatchBet(key);
 
         uint256 sum = 0;
-        for (uint i = 0; i < v.bets.length; i++) {
+        for (uint256 i = 0; i < v.bets.length; i++) {
             sum += v.bets[i].amount;
         }
         assertEq(sum, v.totalBetAmount); // after any cleans

@@ -477,7 +477,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         // Calculate house fee and actual bet amount
-        uint256 fee = (msg.value * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
+        uint256 fee = calculateDepositFee(msg.value);
         uint256 betAmount = msg.value - fee;
 
         // Send fee to owner
@@ -779,5 +779,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function getOwnerFees() external view onlyOwner returns (uint256) {
         return ownerFeesCollected;
+    }
+
+    function calculateDepositFee(uint256 depositAmount) public pure returns (uint256) {
+        return (depositAmount * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
     }
 }
