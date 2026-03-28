@@ -27,6 +27,6 @@ return Functions.encodeString(
     type: "roster",
     playerId,
     faction, // 1 = faction1, 2 = faction2, 0 = not found
-    valid: faction > 0
+    valid: faction == 1 || faction == 2
   })
 );

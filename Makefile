@@ -27,10 +27,6 @@ test_fuzz :; forge test --match-contract FragBoxBettingFuzzTest --fork-url $(ANV
 
 test_invariant :; forge test --match-contract FragBoxBettingInvariantTest --fork-url $(ANVIL_RPC_URL) --ffi -vv
 
-coverage :; forge coverage --ir-minimum --fork-url $(BASE_SEPOLIA_RPC_URL) # --report debug > coverage-report.txt
-
-snapshot :; forge snapshot --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi
-
 format :; forge fmt
 
 anvil :; anvil --fork-url $(BASE_SEPOLIA_RPC_URL)

@@ -15,8 +15,7 @@ contract DeployFragBoxBetting is Script {
             address ethUsdPriceFeed,
             address chainLinkFunctionsRouter,
             bytes32 donId,
-            uint64 subscriptionId,
-            address linkToken,
+            uint64 subscriptionId,,
             uint64 donHostedSecretsVersion
         ) = helperConfig.activeNetworkConfig();
 
