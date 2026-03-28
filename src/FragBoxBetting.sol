@@ -303,11 +303,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
-        requestIdToInfo[requestId] = RequestInfo({
-            matchKey: matchKey,
-            betAmount: betAmount,
-            wallet: msg.sender
-        });
+        requestIdToInfo[requestId] = RequestInfo({matchKey: matchKey, betAmount: betAmount, wallet: msg.sender});
         emit RequestSent(requestId, matchKey);
     }
 
@@ -360,11 +356,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
         mb.statusRequestId = requestId;
-        requestIdToInfo[requestId] = RequestInfo({
-            matchKey: matchKey,
-            betAmount: 0,
-            wallet: msg.sender
-        });
+        requestIdToInfo[requestId] = RequestInfo({matchKey: matchKey, betAmount: 0, wallet: msg.sender});
         emit RequestSent(requestId, matchKey);
     }
 
@@ -415,7 +407,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             uint256 betAmount = requestInfo.betAmount;
             mb.walletToPlayerIdToBet[requestInfo.wallet][playerKey] += betAmount;
-            
+
             // Update totals
             mb.factionTotals[fId] += betAmount;
             mb.totalBetAmount += betAmount;
