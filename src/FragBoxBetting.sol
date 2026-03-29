@@ -29,6 +29,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__RosterUpdateTooSoon();
     error FragBoxBetting__NonOwnerFeeRequired();
     error FragBoxBetting__NoBets();
+    error FragBoxBetting__AmountToWithdrawIsGreaterThanFundsInFlight();
     error FragBoxBetting__WinnerUnknown();
     error FragBoxBetting__InvalidFaction(Faction faction);
 
@@ -113,6 +114,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
+
+    uint256 private betAmountsInRosterValidationFlight;
     uint256 private ownerFeesCollected;
 
     /**
@@ -407,6 +410,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.playerToFaction[playerKey] = playerFaction;
 
             uint256 betAmount = requestInfo.betAmount;
+            betAmountsInRosterValidationFlight -= betAmount;
             mb.walletToPlayerIdToBet[requestInfo.wallet][playerKey] += betAmount;
 
             // Update totals
@@ -472,6 +476,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         Faction faction = mb.playerToFaction[playerKey];
 
         if (faction == Faction.Unknown) {
+            betAmountsInRosterValidationFlight += betAmount;
             updateMatchRoster(matchIdStr, playerIdStr, betAmount);
         } else {
             mb.walletToPlayerIdToBet[msg.sender][playerKey] += betAmount;
@@ -602,6 +607,20 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         ownerFeesCollected = 0;
     }
 
+    /**
+     * Allows the owner to withdraw funds from the contract when they are in flight (chainlink functions) for roster validation
+     * This phase occurs right after a user deposits (bets) for the first time on any match
+     * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
+     * @param amountToWithdraw The amount of eth in wei to attempt to withdraw
+     */
+    function withdrawBetAmountsInRosterValidationFlight(uint256 amountToWithdraw) external onlyOwner {
+        if (amountToWithdraw > betAmountsInRosterValidationFlight) {
+            revert FragBoxBetting__AmountToWithdrawIsGreaterThanFundsInFlight();
+        }
+        Address.sendValue(payable(owner()), amountToWithdraw);
+        betAmountsInRosterValidationFlight -= amountToWithdraw;
+    }
+
     /* -------------------------------- PAUSABLE -------------------------------- */
     function pause() public onlyOwner {
         _pause();
@@ -686,6 +705,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function getOwnerFees() external view onlyOwner returns (uint256) {
         return ownerFeesCollected;
+    }
+
+    /**
+     * @return The amount of eth in wei that is in roster validation flight
+     */
+    function getBetAmountsInRosterValidationFlight() external view onlyOwner returns (uint256) {
+        return betAmountsInRosterValidationFlight;
     }
 
     /**
