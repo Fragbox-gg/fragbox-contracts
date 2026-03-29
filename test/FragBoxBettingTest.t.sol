@@ -483,4 +483,8 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
     function testGetMaxBetAmountInUsd() public view {
         fragBoxBetting.getMaxBetAmountInUsd();
     }
+
+    function testGetPaused() public view {
+        fragBoxBetting.paused();
+    }
 }
