@@ -489,8 +489,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
         }
 
-        // TODO: Sweep any remaining dust (integer division remainder) to owner
-
         emit MatchClaimed(matchKey);
     }
 
