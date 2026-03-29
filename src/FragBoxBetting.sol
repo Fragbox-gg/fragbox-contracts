@@ -14,15 +14,14 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
-    error FragBoxBetting__MatchAlreadyResolved();
-    error FragBoxBetting__MatchNotResolved();
+    error FragBoxBetting__MatchAlreadyFinished();
+    error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
     error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall();
     error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
     error FragBoxBetting__MatchIsFinishedOrOngoing();
-    error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
@@ -74,7 +73,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256[4] factionTotals; // 1 = Faction1 total, 2 = Faction2, 3 = Draw
 
         Faction winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
-        bool resolved; // this is true when a victor has been set/the match has finished
         bytes32 statusRequestId;
 
         mapping(bytes32 playerKey => Faction playerFaction) playerToFaction; // playerKey => Faction (Unknown = invalid/not present)
@@ -91,7 +89,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     struct MatchBetView {
         uint256[4] factionTotals;
         Faction winnerFaction;
-        bool resolved;
         bytes32 statusRequestId;
         uint256 totalBetAmount;
         uint256 lastRosterUpdate;
@@ -274,7 +271,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.resolved) revert FragBoxBetting__MatchAlreadyResolved();
+        if (mb.matchStatus == MatchStatus.Finished) revert FragBoxBetting__MatchAlreadyFinished();
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
         if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
@@ -356,7 +353,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             if (matchStatus == MatchStatus.Finished) {
                 mb.winnerFaction = winnerFaction;
-                mb.resolved = true;
             }
 
             emit RequestFulfilled(requestId, matchKey, matchStatus, winnerFaction);
@@ -382,8 +378,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.resolved) {
-            revert FragBoxBetting__MatchAlreadyResolved();
+        if (mb.matchStatus == MatchStatus.Finished) {
+            revert FragBoxBetting__MatchAlreadyFinished();
         }
 
         if (mb.matchStatus == MatchStatus.Ongoing || mb.matchStatus == MatchStatus.Finished) {
@@ -419,7 +415,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
-     * @notice Claims winnings/refunds for a resolved match.
+     * @notice Claims winnings/refunds for a finished match.
      * Strict equalization: winning faction always receives exactly
      * 2 × min(W, L) total, regardless of which side overbet.
      * Excess on the heavier side is automatically refunded pro-rata.
@@ -435,9 +431,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (!mb.resolved) revert FragBoxBetting__MatchNotResolved();
-        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) revert FragBoxBetting__MatchNotRequested();
         if (mb.matchStatus != MatchStatus.Finished) revert FragBoxBetting__MatchNotFinished();
+        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) revert FragBoxBetting__MatchNotRequested();
 
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
@@ -508,12 +503,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
-        // TODO We should not be able to refund if the match has already been claimed
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.resolved) {
-            revert FragBoxBetting__MatchAlreadyResolved();
+        if (mb.matchStatus == MatchStatus.Finished) {
+            revert FragBoxBetting__MatchAlreadyFinished();
         }
         if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
             revert FragBoxBetting__MatchNotRequested();
@@ -627,7 +621,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         return MatchBetView({
             factionTotals: mb.factionTotals,
             winnerFaction: mb.winnerFaction,
-            resolved: mb.resolved,
             statusRequestId: mb.statusRequestId,
             totalBetAmount: mb.totalBetAmount,
             lastRosterUpdate: mb.lastRosterUpdate,
