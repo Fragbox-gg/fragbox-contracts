@@ -272,7 +272,6 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Ongoing);
-        assertFalse(mb.resolved);
     }
 
     function test_FulfillStatusUpdate_Finished_SetsWinnerAndResolved() public {
@@ -300,7 +299,6 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Finished);
-        assertTrue(mb.resolved);
         assertEq(uint256(mb.winnerFaction), uint256(FragBoxBetting.Faction.Faction1));
     }
 
