@@ -65,7 +65,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 statusRequestId;
 
         mapping(bytes32 playerKey => Faction playerFaction) playerToFaction; // playerKey => Faction (Unknown = invalid/not present)
-        mapping(string playerId => uint256 lastRosterUpdate) playerToLastRosterUpdate;
+        mapping(bytes32 playerKey => uint256 lastRosterUpdate) playerToLastRosterUpdate;
 
         uint256 totalBetAmount;
         uint256 lastRosterUpdate;
@@ -291,7 +291,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerId] + ROSTER_UPDATE_COOLDOWN) {
+        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerKey] + ROSTER_UPDATE_COOLDOWN)
+        {
             revert FragBoxBetting__RosterUpdateTooSoon();
         }
 
@@ -395,7 +396,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             string memory playerId = _getJsonString(json, "playerId");
             bool playerValid = _getJsonBool(json, "valid");
 
-            mb.playerToLastRosterUpdate[playerId] = block.timestamp;
+            bytes32 playerKey = getKey(playerId);
+            mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
             mb.lastRosterUpdate = block.timestamp;
 
             if (!playerValid) {
@@ -406,7 +408,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             uint256 fId = _getJsonUint(json, "faction");
             Faction playerFaction = Faction(SafeCast.toUint8(fId));
 
-            bytes32 playerKey = getKey(playerId);
             mb.playerToFaction[playerKey] = playerFaction;
 
             uint256 betAmount = requestInfo.betAmount;
