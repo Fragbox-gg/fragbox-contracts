@@ -671,68 +671,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
-     * @notice Preview what a user would receive if they called `claim()` right now.
-     * Returns the exact payout (for winners) or excess refund (for losers who overbet).
-     * Uses identical math as `claim()` (including dust calculation) but is gas-free view.
-     * @dev Useful for UI to show "You will receive X ETH" before the user clicks Claim.
-     *
-     * @param matchIdStr The matchId to check
-     * @param playerIdStr The playerId to check (must be associated with msg.sender's bet)
-     */
-    function getClaimableAmount(string calldata matchIdStr, string calldata playerIdStr)
-        external
-        view
-        returns (uint256 claimable)
-    {
-        bytes32 matchKey = _getKey(matchIdStr);
-        MatchBet storage mb = matchBets[matchKey];
-
-        if (!mb.resolved || mb.matchStatus != MatchStatus.Finished) {
-            return 0;
-        }
-        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
-            return 0;
-        }
-        if (mb.winnerFaction == Faction.Unknown) {
-            return 0;
-        }
-
-        bytes32 playerKey = _getKey(playerIdStr);
-        uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
-        if (betAmount == 0) return 0;
-
-        uint8 winnerFId = uint8(mb.winnerFaction);
-
-        // Draw or no winning bets -> full refund
-        if (mb.winnerFaction == Faction.Draw || mb.factionTotals[winnerFId] == 0) {
-            return betAmount;
-        }
-
-        uint256 totalWinningBet = mb.factionTotals[winnerFId];
-        uint256 totalLosingBet = (mb.winnerFaction == Faction.Faction1)
-            ? mb.factionTotals[uint8(Faction.Faction2)]
-            : mb.factionTotals[uint8(Faction.Faction1)];
-
-        uint256 minBet = totalWinningBet < totalLosingBet ? totalWinningBet : totalLosingBet;
-
-        Faction playerFaction = mb.playerToFaction[playerKey];
-
-        if (playerFaction == mb.winnerFaction) {
-            // Winner: symmetric payout
-            uint256 numerator = betAmount * 2 * minBet;
-            claimable = numerator / totalWinningBet;
-        } else {
-            // Loser: only excess refund if they overbet
-            if (totalLosingBet <= totalWinningBet) {
-                return 0;
-            }
-            uint256 excess = totalLosingBet - minBet;
-            uint256 numerator = betAmount * excess;
-            claimable = numerator / totalLosingBet;
-        }
-    }
-
-    /**
      * Calcuates the fee for new deposits
      * @param depositAmount The total amount of eth in wei that someone is depositing
      * @return The fee in wei
