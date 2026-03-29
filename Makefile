@@ -90,6 +90,11 @@ snapshot:
 	forge snapshot --ffi --fork-url $(ANVIL_RPC_URL)
 	make kill-anvil
 
+snapshot-diff:
+	make anvil-ci
+	forge snapshot --ffi --fork-url $(ANVIL_RPC_URL) --diff
+	make kill-anvil
+
 # Coverage (IR minimum — fastest mode; outputs lcov + summary)
 coverage:
 	make anvil-ci

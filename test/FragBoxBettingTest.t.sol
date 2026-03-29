@@ -19,8 +19,14 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
-    event RosterUpdated(bytes32 indexed matchKey, string playerId, FragBoxBetting.Faction playerFaction);
-    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
+    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, FragBoxBetting.Faction playerFaction);
+    event RequestFulfilled(
+        bytes32 indexed requestId,
+        bytes32 indexed matchKey,
+        FragBoxBetting.MatchStatus status,
+        FragBoxBetting.Faction winnerFaction
+    );
+    event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
 
     function setUp() external {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
@@ -229,7 +235,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes memory response = bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER);
 
         vm.expectEmit(true, true, true, false);
-        emit RosterUpdated(matchKey, WINNING_PLAYERID, WINNING_FACTION);
+        emit RosterUpdated(matchKey, fragBoxBetting.getKey(WINNING_PLAYERID), WINNING_FACTION);
 
         super._simulateFulfill(requestId, response, "");
 
@@ -238,7 +244,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
             fragBoxBetting.getPlayerFaction(matchKey, fragBoxBetting.getKey(WINNING_PLAYERID))
                 == FragBoxBetting.Faction.Faction1
         );
-        assertEq(mb.status, "");
+        assert(mb.matchStatus == FragBoxBetting.MatchStatus.Unknown);
         assertEq(mb.lastRosterUpdate, block.timestamp);
         assertEq(mb.lastStatusUpdate, 0);
     }
@@ -265,7 +271,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         super._simulateFulfill(statusReq, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
-        assertEq(mb.status, "ONGOING");
+        assert(mb.matchStatus == FragBoxBetting.MatchStatus.Ongoing);
         assertFalse(mb.resolved);
     }
 
@@ -288,12 +294,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
-        emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction1");
+        emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
 
         super._simulateFulfill(statusReq, response, "");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
-        assertEq(mb.status, "FINISHED");
+        assert(mb.matchStatus == FragBoxBetting.MatchStatus.Finished);
         assertTrue(mb.resolved);
         assertEq(uint256(mb.winnerFaction), uint256(FragBoxBetting.Faction.Faction1));
     }
@@ -307,7 +313,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes memory err = bytes("Faceit API error");
 
         vm.expectEmit(true, true, true, true);
-        emit RequestFulfilled(requestId, fragBoxBetting.getKey(MATCHID), "ERROR", "Faceit API error");
+        emit RequestError(requestId, fragBoxBetting.getKey(MATCHID), "Faceit API error");
 
         super._simulateFulfill(requestId, string(""), err);
     }
@@ -393,7 +399,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
-        emit RequestFulfilled(statusReq, matchKey, "FINISHED", "faction1");
+        emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
 
         super._simulateFulfill(statusReq, response, "");
 
@@ -482,5 +488,9 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
     function testGetMaxBetAmountInUsd() public view {
         fragBoxBetting.getMaxBetAmountInUsd();
+    }
+
+    function testGetPaused() public view {
+        fragBoxBetting.paused();
     }
 }

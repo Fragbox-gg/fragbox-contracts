@@ -22,11 +22,4 @@ let faction = 0;
 if (f1Roster.includes(playerId)) faction = 1;
 else if (f2Roster.includes(playerId)) faction = 2;
 
-return Functions.encodeString(
-  JSON.stringify({
-    type: "roster",
-    playerId,
-    faction, // 1 = faction1, 2 = faction2, 0 = not found
-    valid: faction == 1 || faction == 2
-  })
-);
+return new Uint8Array([faction]);
