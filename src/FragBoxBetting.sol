@@ -691,6 +691,21 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
+     * Gets the percentage the contract takes during deposits
+     * @return The percentage
+     */
+    function getHouseFeePercentage() external pure returns (uint256) {
+        return HOUSE_FEE_PERCENTAGE;
+    }
+
+    /**
+     * @return The value to divide house fee percentage by
+     */
+    function getPercentageBase() external pure returns (uint256) {
+        return PERCENTAGE_BASE;
+    }
+
+    /**
      * Gets the minimum total deposit amount per match
      * @return The amount in USD wei
      */

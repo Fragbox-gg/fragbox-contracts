@@ -467,4 +467,20 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(USER);
         fragBoxBetting.getOwnerFees();
     }
+
+    function testCalculateDepositFee() public view {
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
+        assertEq(
+            SEND_VALUE - fee,
+            SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / fragBoxBetting.getPercentageBase()
+        );
+    }
+
+    function testGetMinBetAmountInUsd() public view {
+        fragBoxBetting.getMinBetAmountInUsd();
+    }
+
+    function testGetMaxBetAmountInUsd() public view {
+        fragBoxBetting.getMaxBetAmountInUsd();
+    }
 }
