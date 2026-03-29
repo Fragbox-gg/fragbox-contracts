@@ -445,7 +445,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (mb.winnerFaction == Faction.Unknown) {
             revert FragBoxBetting__WinnerUnknown();
         } else if (mb.winnerFaction != Faction.Draw) {
-            if (faction != Faction.Faction1 && faction != Faction.Faction2) {
+            // If we know who the winner is and it's not a draw, only let winning players claim their prize
+            if (faction != mb.winnerFaction) {
                 revert FragBoxBetting__InvalidFaction(faction);
             }
         }
@@ -482,6 +483,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
+        // TODO We should not be able to refund if the match has already been claimed
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
