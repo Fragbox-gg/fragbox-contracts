@@ -212,10 +212,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerKey] + ROSTER_UPDATE_COOLDOWN) {
+        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerKey] + ROSTER_UPDATE_COOLDOWN)
+        {
             revert FragBoxBetting__RosterUpdateTooSoon();
         }
-        
+
         mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
 
         FunctionsRequest.Request memory req;
@@ -276,7 +277,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
             revert FragBoxBetting__StatusUpdateTooSoon();
         }
-        
+
         mb.lastStatusUpdate = block.timestamp;
 
         FunctionsRequest.Request memory req;
