@@ -28,10 +28,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
     error FragBoxBetting__NonOwnerFeeRequired();
-    error FragBoxBetting__NoBets();
+    error FragBoxBetting__NoBetForPlayer();
     error FragBoxBetting__AmountToWithdrawIsGreaterThanFundsInFlight();
     error FragBoxBetting__WinnerUnknown();
-    error FragBoxBetting__InvalidFaction(Faction faction);
+    error FragBoxBetting__LosingFactionCannotClaim(Faction faction);
 
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
@@ -419,9 +419,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
-     * Checks if a match has completed and pays out based on the victor.
-     * Payouts are calculated based on how much each player deposited (wagered).
-     * So a player who wagered $20 when their team total is $100 will get 20% of the prize pot
+     * @notice Claims winnings/refunds for a resolved match.
+     * Strict equalization: winning faction always receives exactly
+     * 2 × min(W, L) total, regardless of which side overbet.
+     * Excess on the heavier side is automatically refunded pro-rata.
+     *
+     * Winners overbet (W=150, L=100) -> winners get 200 (2 × 100)
+     * Losers overbet (W=100, L=150) -> winners get 200 (2 × 100)
+     *
+     * Both factions risk the exact same amount. Excess on both sides is refunded.
+     *
      * @param matchIdStr Match id to check
      */
     function claim(string calldata matchIdStr, string calldata playerIdStr) external nonReentrant whenNotPaused {
@@ -432,45 +439,52 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) revert FragBoxBetting__MatchNotRequested();
         if (mb.matchStatus != MatchStatus.Finished) revert FragBoxBetting__MatchNotFinished();
 
-        uint256 totalPot = mb.totalBetAmount;
-        if (totalPot == 0) revert FragBoxBetting__NoBets();
-
-        uint256 totalWinningBet = (mb.winnerFaction != Faction.Faction1 && mb.winnerFaction != Faction.Faction2)
-            ? 0
-            : mb.factionTotals[uint8(mb.winnerFaction)];
-
         bytes32 playerKey = _getKey(playerIdStr);
-
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
+        if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
 
-        if (totalWinningBet <= 0) {
-            if (betAmount > 0) {
-                // No one bet on winner -> refund everyone
-                playerToWinnings[msg.sender][playerKey] += betAmount;
-                mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
-            }
-        } else {
-            // Winning bet is greater than 0 so payout logic is valid
-            Faction faction = mb.playerToFaction[playerKey];
-            if (mb.winnerFaction == Faction.Unknown) {
-                revert FragBoxBetting__WinnerUnknown();
-            } else if (mb.winnerFaction != Faction.Draw) {
-                // If we know who the winner is and it's not a draw, only let winning players claim their prize
-                if (faction != mb.winnerFaction) {
-                    revert FragBoxBetting__InvalidFaction(faction);
-                }
-            }
+        Faction winnerFaction = mb.winnerFaction;
+        if (winnerFaction == Faction.Unknown) revert FragBoxBetting__WinnerUnknown();
+        uint8 winnerFId = uint8(winnerFaction);
 
-            if (betAmount > 0) {
-                // Payout logic
-                uint256 payout = (betAmount * totalPot) / totalWinningBet;
-
-                playerToWinnings[msg.sender][playerKey] += payout;
-                mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
-            }
+        // Draw or no winning bets -> full refund
+        if (winnerFaction == Faction.Draw || mb.factionTotals[winnerFId] == 0) {
+            playerToWinnings[msg.sender][playerKey] += betAmount;
+            mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
+            emit MatchClaimed(matchKey);
+            return;
         }
 
-        // TODO Sweep dust from integer division to owner
+        uint256 totalWinningBet = mb.factionTotals[winnerFId];
+        uint256 totalLosingBet = (winnerFaction == Faction.Faction1)
+            ? mb.factionTotals[uint8(Faction.Faction2)]
+            : mb.factionTotals[uint8(Faction.Faction1)];
+
+        // STRICT SYMMETRY: winning side always gets exactly 2 * min(W, L)
+        uint256 minBet = totalWinningBet < totalLosingBet ? totalWinningBet : totalLosingBet;
+
+        Faction playerFaction = mb.playerToFaction[playerKey];
+        uint256 payoutOrRefund;
+
+        if (playerFaction == winnerFaction) {
+            // WINNER PATH: always get symmetric share (2 * minBet)
+            payoutOrRefund = (betAmount * 2 * minBet) / totalWinningBet;
+        } else {
+            // LOSER PATH: only get excess refund if losing faction overbet
+            if (totalLosingBet <= totalWinningBet) {
+                revert FragBoxBetting__LosingFactionCannotClaim(playerFaction);
+            }
+            // excess on losing side is refunded pro-rata
+            uint256 excess = totalLosingBet - minBet;
+            payoutOrRefund = (betAmount * excess) / totalLosingBet;
+        }
+
+        if (payoutOrRefund > 0) {
+            playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
+            mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
+        }
+
+        // TODO: Sweep any remaining dust (integer division remainder) to owner
 
         emit MatchClaimed(matchKey);
     }
