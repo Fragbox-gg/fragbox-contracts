@@ -29,6 +29,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__RosterUpdateTooSoon();
     error FragBoxBetting__NonOwnerFeeRequired();
     error FragBoxBetting__NoBets();
+    error FragBoxBetting__WinnerUnknown();
     error FragBoxBetting__InvalidFaction(Faction faction);
 
     using FunctionsRequest for FunctionsRequest.Request;
@@ -507,7 +508,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 playerKey = _getKey(playerIdStr);
 
         Faction faction = mb.playerToFaction[playerKey];
-        if (faction != Faction.Faction1 && faction != Faction.Faction2) revert FragBoxBetting__InvalidFaction(faction);
+        if (mb.winnerFaction == Faction.Unknown) {
+            revert FragBoxBetting__WinnerUnknown();
+        } else if (mb.winnerFaction != Faction.Draw) {
+            if (faction != Faction.Faction1 && faction != Faction.Faction2) {
+                revert FragBoxBetting__InvalidFaction(faction);
+            }
+        }
 
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
 
