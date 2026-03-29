@@ -11,7 +11,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyFinished();
@@ -325,6 +324,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
             mb.lastRosterUpdate = block.timestamp;
 
+            if (response.length != 1) {
+                emit RequestError(requestId, matchKey, "Invalid Roster Response");
+                return;
+            }
+
             uint8 fId = uint8(response[0]);
             Faction playerFaction = Faction(fId);
 
@@ -345,12 +349,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             emit RosterUpdated(matchKey, playerKey, playerFaction);
         } else if (requestInfo.requestType == RequestType.Status) {
-            MatchStatus matchStatus = MatchStatus(uint8(response[0]));
-            Faction winnerFaction = Faction(uint8(response[1]));
-
-            mb.matchStatus = matchStatus;
             mb.lastStatusUpdate = block.timestamp;
 
+            if (response.length != 2) {
+                emit RequestError(requestId, matchKey, "Invalid Status Response");
+                return;
+            }
+
+            MatchStatus matchStatus = MatchStatus(uint8(response[0]));
+            mb.matchStatus = matchStatus;
+
+            Faction winnerFaction = Faction(uint8(response[1]));
             if (matchStatus == MatchStatus.Finished) {
                 mb.winnerFaction = winnerFaction;
             }
