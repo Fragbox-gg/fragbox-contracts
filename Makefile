@@ -27,10 +27,6 @@ test_fuzz :; forge test --match-contract FragBoxBettingFuzzTest --fork-url $(ANV
 
 test_invariant :; forge test --match-contract FragBoxBettingInvariantTest --fork-url $(ANVIL_RPC_URL) --ffi -vv
 
-coverage :; forge coverage --ir-minimum --fork-url $(BASE_SEPOLIA_RPC_URL) # --report debug > coverage-report.txt
-
-snapshot :; forge snapshot --fork-url $(BASE_SEPOLIA_RPC_URL) --ffi
-
 format :; forge fmt
 
 anvil :; anvil --fork-url $(BASE_SEPOLIA_RPC_URL)
@@ -77,3 +73,25 @@ kill-anvil:
 		kill `cat anvil.pid` 2>/dev/null || true; \
 		rm -f anvil.pid; \
 	fi
+
+# ==============================================
+# GAS REPORT, SNAPSHOT & COVERAGE (Anvil-based)
+# ==============================================
+
+# Gas report (shows gas usage per function — runs all tests)
+gas-report:
+	make anvil-ci
+	forge test --gas-report --ffi --fork-url $(ANVIL_RPC_URL)
+	make kill-anvil
+
+# Gas snapshot (creates/updates .gas-snapshot file for CI regression checks)
+snapshot:
+	make anvil-ci
+	forge snapshot --ffi --fork-url $(ANVIL_RPC_URL)
+	make kill-anvil
+
+# Coverage (IR minimum — fastest mode; outputs lcov + summary)
+coverage:
+	make anvil-ci
+	forge coverage --ir-minimum --ffi --fork-url $(ANVIL_RPC_URL) --report lcov --report summary
+	make kill-anvil

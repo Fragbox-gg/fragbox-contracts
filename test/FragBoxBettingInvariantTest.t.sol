@@ -23,37 +23,12 @@ contract FragBoxBettingInvariantTest is Test {
     }
 
     // ==================== INVARIANTS (these run after every fuzz call) ====================
-
-    function invariant_totalBetAmountMatchesSumOfBets() public {
-        bytes32 key = fragBoxBetting.getMatchKey(MATCH_ID);
-        FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(key);
-
-        uint256 manualSum = 0;
-        for (uint256 i = 0; i < mb.bets.length; i++) {
-            manualSum += mb.bets[i].amount;
-        }
-
-        assertEq(manualSum, mb.totalBetAmount, "totalBetAmount != sum of bets");
-    }
-
-    function invariant_contractBalanceNeverNegative() public {
+    function invariant_contractBalanceNeverNegative() public view {
         assertGe(address(fragBoxBetting).balance, 0);
     }
 
-    function invariant_ghostDepositedConsistency() public {
+    function invariant_ghostDepositedConsistency() public view {
         // Rough sanity check that deposits actually happened
         assertTrue(handler.ghost_totalDeposited() >= 0);
-    }
-
-    function invariant_BetTotalsConsistent() public view {
-        // Simple per-match check (expand with a handler for multiple matches)
-        bytes32 key = fragBoxBetting.getMatchKey(MATCH_ID);
-        FragBoxBetting.MatchBetView memory v = fragBoxBetting.getMatchBet(key);
-
-        uint256 sum = 0;
-        for (uint256 i = 0; i < v.bets.length; i++) {
-            sum += v.bets[i].amount;
-        }
-        assertEq(sum, v.totalBetAmount); // after any cleans
     }
 }

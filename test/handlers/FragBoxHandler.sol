@@ -37,40 +37,33 @@ contract FragBoxHandler is CommonBase, StdCheats, Test {
 
     function deposit(uint256 actorIdx, uint256 factionIdx, uint256 amount) public {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
-        string memory factionStr = factions[bound(factionIdx, 0, 2)];
         string memory playerId = factionIdx % 2 == 0 ? PLAYER_WIN : PLAYER_LOSE;
 
         amount = bound(amount, 0.01 ether, 3 ether); // above min bet
 
         vm.prank(actor);
-        betting.deposit{value: amount}(MATCH_ID, playerId, factionStr);
+        betting.deposit{value: amount}(MATCH_ID, playerId);
 
         ghost_totalDeposited += amount;
     }
 
-    function updateMatchStatus(
-        uint256 /*actorIdx*/
-    )
-        public
-    {
+    function updateMatchStatus() public {
         vm.prank(actors[0]);
         betting.updateMatchStatus(MATCH_ID);
     }
 
     function claim(uint256 actorIdx) public {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
+        string memory playerId = (actorIdx % 2 == 0) ? PLAYER_WIN : PLAYER_LOSE;
         vm.prank(actor);
-        betting.claim(MATCH_ID);
+        betting.claim(MATCH_ID, playerId);
     }
 
-    function emergencyRefund(
-        uint256 /*actorIdx*/
-    )
-        public
-    {
+    function emergencyRefund(uint256 actorIdx) public {
         vm.warp(block.timestamp + 25 hours);
         vm.prank(actors[0]);
-        betting.emergencyRefund(MATCH_ID);
+        string memory playerId = (actorIdx % 2 == 0) ? PLAYER_WIN : PLAYER_LOSE;
+        betting.emergencyRefund(MATCH_ID, playerId);
     }
 
     function withdrawWinnings(uint256 actorIdx) public {

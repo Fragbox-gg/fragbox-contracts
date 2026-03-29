@@ -34,6 +34,7 @@ zkout/
 
 gas-report.txt
 *.gas-snapshot*
+*.info
 
 ### Node
 # dependencies
