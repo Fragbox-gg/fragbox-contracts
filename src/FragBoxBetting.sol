@@ -121,7 +121,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction);
+    event RequestFulfilled(
+        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
+    );
     event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);

@@ -20,7 +20,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
     event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, FragBoxBetting.Faction playerFaction);
-    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, FragBoxBetting.MatchStatus status, FragBoxBetting.Faction winnerFaction);
+    event RequestFulfilled(
+        bytes32 indexed requestId,
+        bytes32 indexed matchKey,
+        FragBoxBetting.MatchStatus status,
+        FragBoxBetting.Faction winnerFaction
+    );
     event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
 
     function setUp() external {
