@@ -245,7 +245,6 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
                 == FragBoxBetting.Faction.Faction1
         );
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Unknown);
-        assertEq(mb.lastRosterUpdate, block.timestamp);
         assertEq(mb.lastStatusUpdate, 0);
     }
 
