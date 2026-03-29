@@ -449,7 +449,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                 playerToWinnings[msg.sender][playerKey] += betAmount;
                 mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
             }
-        } else { // Winning bet is greater than 0 so payout logic is valid
+        } else {
+            // Winning bet is greater than 0 so payout logic is valid
             Faction faction = mb.playerToFaction[playerKey];
             if (mb.winnerFaction == Faction.Unknown) {
                 revert FragBoxBetting__WinnerUnknown();
