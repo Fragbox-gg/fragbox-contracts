@@ -527,8 +527,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         emit EmergencyRefund(matchKey);
     }
 
-    // TODO Add emergencyRefund onlyOwner method that doesn't care about any constraints
-
     /**
      * Allows a player to withdraw their winnings from the contract
      * @param playerId The player id the sender wallet is associated with
