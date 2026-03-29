@@ -370,7 +370,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
-        // TODO Make this check the existing bet amount so that players can't spam multiple bets to get past this
+        // The point of this is just to prevent anyone from sending an insanely large amount of money or an insanely small amount of money
+        // We don't care if someone bets a large amount of money on a match, but we want to prevent mistakes (like someone sending 1000x the intended bet amount) and also prevent dust bets that would cause issues with the pro-rata calculations and leftover dust in the contract after payouts
         uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
         if (usdValueOfEth < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall();
         if (usdValueOfEth > MAX_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooLarge();
@@ -489,8 +490,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
         }
 
-        // TODO: Sweep any remaining dust (integer division remainder) to owner
-
         emit MatchClaimed(matchKey);
     }
 
@@ -528,8 +527,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         emit EmergencyRefund(matchKey);
     }
-
-    // TODO Add emergencyRefund onlyOwner method that doesn't care about any constraints
 
     /**
      * Allows a player to withdraw their winnings from the contract
