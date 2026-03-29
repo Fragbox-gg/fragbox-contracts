@@ -441,15 +441,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         bytes32 playerKey = _getKey(playerIdStr);
 
-        Faction faction = mb.playerToFaction[playerKey];
-        if (mb.winnerFaction == Faction.Unknown) {
-            revert FragBoxBetting__WinnerUnknown();
-        } else if (mb.winnerFaction != Faction.Draw) {
-            if (faction != Faction.Faction1 && faction != Faction.Faction2) {
-                revert FragBoxBetting__InvalidFaction(faction);
-            }
-        }
-
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
 
         if (totalWinningBet <= 0) {
@@ -459,6 +450,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                 mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
             }
         } else {
+            // Winning bet is greater than 0 so payout logic is valid
+            Faction faction = mb.playerToFaction[playerKey];
+            if (mb.winnerFaction == Faction.Unknown) {
+                revert FragBoxBetting__WinnerUnknown();
+            } else if (mb.winnerFaction != Faction.Draw) {
+                // If we know who the winner is and it's not a draw, only let winning players claim their prize
+                if (faction != mb.winnerFaction) {
+                    revert FragBoxBetting__InvalidFaction(faction);
+                }
+            }
+
             if (betAmount > 0) {
                 // Payout logic
                 uint256 payout = (betAmount * totalPot) / totalWinningBet;
@@ -482,6 +484,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
+        // TODO We should not be able to refund if the match has already been claimed
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
