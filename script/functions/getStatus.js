@@ -14,16 +14,20 @@ const res = await Functions.makeHttpRequest({
 if (res.error) throw Error(`Faceit API error: ${res.error}`);
 
 const data = res.data || {};
-const status = data.status || "UNKNOWN";
+const statusStr = data.status || "UNKNOWN";
 
-let winner = "unknown";
-if (status === "FINISHED" && data.results?.winner) {
-  winner = data.results.winner;
+let statusCode = 0;
+if (statusStr === "VOTING") statusCode = 1;
+else if (statusStr === "READY") statusCode = 2;
+else if (statusStr === "ONGOING") statusCode = 3;
+else if (statusStr === "FINISHED") statusCode = 4;
+
+let winnerCode = 0; // 0 = unknown, 1 = faction1, 2 = faction2, 3 = draw
+if (statusCode === 4 && data.results?.winner) {
+  let winner = data.results.winner;
+  if (winner === "faction1") winnerCode = 1;
+  else if (winner === "faction2") winnerCode = 2;
+  else if (winner === "draw") winnerCode = 3;
 }
 
-return Functions.encodeString(
-  JSON.stringify({
-    status,
-    winner
-  })
-);
+return new Uint8Array([statusCode, winnerCode]);
