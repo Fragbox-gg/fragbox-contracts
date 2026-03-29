@@ -23,7 +23,6 @@ if (status === "FINISHED" && data.results?.winner) {
 
 return Functions.encodeString(
   JSON.stringify({
-    type: "status",
     status,
     winner
   })

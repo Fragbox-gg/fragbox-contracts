@@ -53,11 +53,10 @@ function processStatus(data) {
   const status = data.status || "UNKNOWN";
   let winner = "unknown";
   if (status === "FINISHED" && data.results?.winner) winner = data.results.winner;
-  return JSON.stringify({ type: "status", status, winner });
+  return JSON.stringify({ status, winner });
 }
 
 function processRoster(data, playerId) {
-  const status = data.status || "UNKNOWN";
   const f1Roster = (data.teams?.faction1?.roster || []).map(p => p.player_id);
   const f2Roster = (data.teams?.faction2?.roster || []).map(p => p.player_id);
 
@@ -65,7 +64,7 @@ function processRoster(data, playerId) {
   if (f1Roster.includes(playerId)) faction = 1;
   else if (f2Roster.includes(playerId)) faction = 2;
 
-  return JSON.stringify({ type: "roster", playerId, faction, valid: faction > 0, status });
+  return JSON.stringify({ faction });
 }
 
 async function runReal(matchId, playerId, apiKey, isSilent) {
@@ -107,12 +106,6 @@ function logResult(type, result, isSilent) {
 }
 
 function convertResponseObjectToString(result) {
-  // console.log(result.responseBytesHexstring);
-  // console.log(result.response);
-  // console.log(result.error);
-  // console.log(result.errorString);
-
-  // return 'Check';
   const hex = result.responseBytesHexstring || result.response;
   if (!hex) return console.error('No response');
 

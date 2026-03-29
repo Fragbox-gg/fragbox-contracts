@@ -89,7 +89,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
 
     struct RequestInfo {
+        string requestType;
         bytes32 matchKey;
+        bytes32 playerKey;
         uint256 betAmount;
         address wallet;
     }
@@ -109,7 +111,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, string status, string winnerFaction);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
-    event RosterUpdated(bytes32 indexed matchKey, string playerId, Faction playerFaction);
+    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
 
     uint8 private donHostedSecretsSlotId;
@@ -308,7 +310,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
-        requestIdToInfo[requestId] = RequestInfo({matchKey: matchKey, betAmount: betAmount, wallet: msg.sender});
+        requestIdToInfo[requestId] = RequestInfo({
+            requestType: "roster",
+            matchKey: matchKey,
+            playerKey: _getKey(playerId),
+            betAmount: betAmount,
+            wallet: msg.sender
+        });
         emit RequestSent(requestId, matchKey);
     }
 
@@ -361,7 +369,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 requestId = _sendRequest(req.encodeCBOR(), I_SUBSCRIPTIONID, CALLBACK_GAS_LIMIT, I_DONID);
 
         mb.statusRequestId = requestId;
-        requestIdToInfo[requestId] = RequestInfo({matchKey: matchKey, betAmount: 0, wallet: msg.sender});
+        requestIdToInfo[requestId] = RequestInfo({
+            requestType: "status", matchKey: matchKey, playerKey: bytes32(0), betAmount: 0, wallet: msg.sender
+        });
         emit RequestSent(requestId, matchKey);
     }
 
@@ -382,31 +392,27 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         string memory json = string(response);
-        string memory responseType = _getJsonString(json, "type");
 
         // Request ownership validation (prevents stale data corruption)
-        if (_compareStrings(responseType, "status")) {
+        if (_compareStrings(requestInfo.requestType, "status")) {
             if (mb.statusRequestId != requestId) {
                 emit RequestFulfilled(requestId, matchKey, "ERROR", "Stale Status Request Id");
                 return;
             }
         }
 
-        if (_compareStrings(responseType, "roster")) {
-            string memory playerId = _getJsonString(json, "playerId");
-            bool playerValid = _getJsonBool(json, "valid");
-
-            bytes32 playerKey = getKey(playerId);
+        if (_compareStrings(requestInfo.requestType, "roster")) {
+            bytes32 playerKey = requestInfo.playerKey;
             mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
             mb.lastRosterUpdate = block.timestamp;
 
-            if (!playerValid) {
-                emit RequestFulfilled(requestId, matchKey, "ERROR", string.concat("Invalid player id ", playerId));
-                return;
-            }
-
             uint256 fId = _getJsonUint(json, "faction");
             Faction playerFaction = Faction(SafeCast.toUint8(fId));
+
+            if (playerFaction != Faction.Faction1 && playerFaction != Faction.Faction2) {
+                emit RequestFulfilled(requestId, matchKey, "ERROR", "Invalid player");
+                return;
+            }
 
             mb.playerToFaction[playerKey] = playerFaction;
 
@@ -418,8 +424,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.factionTotals[fId] += betAmount;
             mb.totalBetAmount += betAmount;
 
-            emit RosterUpdated(matchKey, playerId, playerFaction);
-        } else if (_compareStrings(responseType, "status")) {
+            emit RosterUpdated(matchKey, playerKey, playerFaction);
+        } else if (_compareStrings(requestInfo.requestType, "status")) {
             string memory status = _getJsonString(json, "status");
             string memory winner = _getJsonString(json, "winner");
 

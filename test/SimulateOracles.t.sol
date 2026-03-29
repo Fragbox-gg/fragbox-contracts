@@ -114,6 +114,7 @@ contract SimulateFunctionsOracle is Test {
 
         string memory response = string(rawOutput);
         response = _stripSecpWarning(response);
+        console.log(response);
         return response;
     }
 
