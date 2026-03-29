@@ -11,13 +11,11 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
-    error FragBoxBetting__MatchNotRequested();
     error FragBoxBetting__BetTooSmall();
     error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
@@ -68,32 +66,32 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     struct MatchBet {
-        mapping(address wallet => mapping(bytes32 playerKey => uint256 betAmount)) walletToPlayerIdToBet;
+        Faction winnerFaction;
+        MatchStatus matchStatus;
 
-        uint256[4] factionTotals; // 1 = Faction1 total, 2 = Faction2, 3 = Draw
-
-        Faction winnerFaction; // "" = pending, "faction1"/"faction2"/"draw"
-        bytes32 statusRequestId;
-
-        mapping(bytes32 playerKey => Faction playerFaction) playerToFaction; // playerKey => Faction (Unknown = invalid/not present)
-        mapping(bytes32 playerKey => uint256 lastRosterUpdate) playerToLastRosterUpdate;
+        uint256[4] factionTotals; // 0 = Unknown, 1 = Faction1 total, 2 = Faction2, 3 = Draw
 
         uint256 totalBetAmount;
-        uint256 lastRosterUpdate;
         uint256 lastStatusUpdate;
 
-        MatchStatus matchStatus;
+        bytes32 statusRequestId;
+
+        mapping(address wallet => mapping(bytes32 playerKey => uint256 betAmount)) walletToPlayerIdToBet;
+        mapping(bytes32 playerKey => Faction playerFaction) playerToFaction; // playerKey => Faction (Unknown = invalid/not present)
+        mapping(bytes32 playerKey => uint256 lastRosterUpdate) playerToLastRosterUpdate;
     }
 
     /* ---------- VIEW STRUCT (no mapping -> can be returned in memory) ---------- */
     struct MatchBetView {
-        uint256[4] factionTotals;
         Faction winnerFaction;
-        bytes32 statusRequestId;
-        uint256 totalBetAmount;
-        uint256 lastRosterUpdate;
-        uint256 lastStatusUpdate;
         MatchStatus matchStatus;
+
+        uint256[4] factionTotals;
+
+        uint256 totalBetAmount;
+        uint256 lastStatusUpdate;
+
+        bytes32 statusRequestId;
     }
 
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
@@ -219,6 +217,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__RosterUpdateTooSoon();
         }
 
+        mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
+
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETROSTER);
 
@@ -278,6 +278,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__StatusUpdateTooSoon();
         }
 
+        mb.lastStatusUpdate = block.timestamp;
+
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(I_GETSTATUS);
 
@@ -322,8 +324,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         if (requestInfo.requestType == RequestType.Roster) {
             bytes32 playerKey = requestInfo.playerKey;
-            mb.playerToLastRosterUpdate[playerKey] = block.timestamp;
-            mb.lastRosterUpdate = block.timestamp;
+
+            if (response.length != 1) {
+                emit RequestError(requestId, matchKey, "Invalid Roster Response");
+                return;
+            }
 
             uint8 fId = uint8(response[0]);
             Faction playerFaction = Faction(fId);
@@ -345,12 +350,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             emit RosterUpdated(matchKey, playerKey, playerFaction);
         } else if (requestInfo.requestType == RequestType.Status) {
+            if (response.length != 2) {
+                emit RequestError(requestId, matchKey, "Invalid Status Response");
+                return;
+            }
+
             MatchStatus matchStatus = MatchStatus(uint8(response[0]));
-            Faction winnerFaction = Faction(uint8(response[1]));
-
             mb.matchStatus = matchStatus;
-            mb.lastStatusUpdate = block.timestamp;
 
+            Faction winnerFaction = Faction(uint8(response[1]));
             if (matchStatus == MatchStatus.Finished) {
                 mb.winnerFaction = winnerFaction;
             }
@@ -433,7 +441,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.matchStatus != MatchStatus.Finished) revert FragBoxBetting__MatchNotFinished();
-        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) revert FragBoxBetting__MatchNotRequested();
 
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
@@ -508,13 +515,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (mb.matchStatus == MatchStatus.Finished) {
             revert FragBoxBetting__MatchAlreadyFinished();
         }
-        if (mb.lastRosterUpdate == 0 || mb.lastStatusUpdate == 0) {
-            revert FragBoxBetting__MatchNotRequested();
-        }
-        if (
-            block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION
-                && block.timestamp <= mb.lastRosterUpdate + TIMEOUT_DURATION
-        ) {
+
+        if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
             revert FragBoxBetting__TimeoutNotReached();
         }
 
@@ -620,7 +622,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             winnerFaction: mb.winnerFaction,
             statusRequestId: mb.statusRequestId,
             totalBetAmount: mb.totalBetAmount,
-            lastRosterUpdate: mb.lastRosterUpdate,
             lastStatusUpdate: mb.lastStatusUpdate,
             matchStatus: mb.matchStatus
         });
