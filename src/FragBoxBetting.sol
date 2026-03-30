@@ -555,7 +555,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /**
      * Allows the owner to withdraw collected deposit fees
      */
-    function withdrawOwnerFees() external onlyOwner {
+    function withdrawOwnerFees() external onlyOwner nonReentrant whenNotPaused {
         uint256 amount = ownerFeesCollected;
         Address.sendValue(payable(owner()), amount);
         ownerFeesCollected = 0;
@@ -566,7 +566,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * This phase occurs right after a user deposits (bets) for the first time on any match
      * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
      */
-    function withdrawBetAmountsInRosterValidationFlight() external {
+    function withdrawBetAmountsInRosterValidationFlight() external nonReentrant whenNotPaused {
         uint256 withdrawalAmount = betAmountsInRosterValidationFlight[msg.sender];
         if (withdrawalAmount <= 0) {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
