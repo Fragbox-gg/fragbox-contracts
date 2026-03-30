@@ -304,6 +304,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
         RequestInfo memory requestInfo = requestIdToInfo[requestId];
+        delete requestIdToInfo[requestId];
         bytes32 matchKey = requestInfo.matchKey;
 
         if (err.length > 0) {
