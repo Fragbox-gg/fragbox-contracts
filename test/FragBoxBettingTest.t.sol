@@ -16,6 +16,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
     ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
+    uint256 constant CALLBACK_GAS_LIMIT = 250_000;
 
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
@@ -237,7 +238,11 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.expectEmit(true, true, true, false);
         emit RosterUpdated(matchKey, fragBoxBetting.getKey(WINNING_PLAYERID), WINNING_FACTION);
 
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(requestId, response, "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assertTrue(
@@ -256,7 +261,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
+
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         vm.warp(block.timestamp + 6 minutes);
 
@@ -267,7 +277,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes32 statusReq = super._captureRequestId();
 
         bytes memory response = bytes(PROCESSED_STATUS_ONGOING);
+
+        gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status ongoing):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Ongoing);
@@ -281,7 +296,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
+
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         // Finished status (uses "faction2" from your real JSON)
         super._startRequestCapture();
@@ -294,7 +314,11 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
 
+        gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status finished):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Finished);
@@ -312,12 +336,21 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.expectEmit(true, true, true, true);
         emit RequestError(requestId, fragBoxBetting.getKey(MATCHID), "Faceit API error");
 
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(requestId, string(""), err);
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (error path):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
     }
 
     function test_FulfillRequest_InvalidRequestId_DoesNotCorruptOtherMatches() public {
         bytes32 fakeRequestId = keccak256("fake");
+
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(fakeRequestId, bytes(PROCESSED_STATUS_ONGOING), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status ongoing):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
         // No state change, no revert — exactly as intended
     }
 
@@ -326,7 +359,12 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
+
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         vm.startPrank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
@@ -353,13 +391,22 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes32 rosterId = super._captureRequestId();
         vm.stopPrank();
         // Validate roster
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusId = super._captureRequestId();
+
+        gasBefore = gasleft();
         super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_ONGOING), "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status ongoing):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         vm.prank(fragBoxBetting.owner());
         vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
@@ -390,7 +437,11 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes32 rosterId = super._captureRequestId();
         vm.stopPrank();
         // fulfill status with winner = other faction
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         vm.warp(block.timestamp + 6 minutes);
 
@@ -405,7 +456,11 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
 
+        gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status finished):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         // claim() should refund everyone via playerToWinnings
         vm.startPrank(USER);
@@ -426,14 +481,24 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
+
+        uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (Roster update):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         // fulfill status with "draw"
         super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusReq = super._captureRequestId();
+
+        gasBefore = gasleft();
         super._simulateFulfill(statusReq, bytes(PROCESSED_STATUS_FINISHED_DRAW), "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status finished):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
         // claim
         vm.startPrank(USER);
@@ -494,7 +559,17 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         fragBoxBetting.getMaxBetAmountInUsd();
     }
 
-    function testGetPaused() public view {
-        fragBoxBetting.paused();
+    function testGetPaused() public {
+        assertFalse(fragBoxBetting.paused());
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.pause();
+
+        assertTrue(fragBoxBetting.paused());
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.unpause();
+
+        assertFalse(fragBoxBetting.paused());
     }
 }

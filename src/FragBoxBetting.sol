@@ -303,9 +303,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param err The error message of the API request
      */
     function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
-        RequestInfo storage requestInfo = requestIdToInfo[requestId];
+        RequestInfo memory requestInfo = requestIdToInfo[requestId];
         bytes32 matchKey = requestInfo.matchKey;
-        MatchBet storage mb = matchBets[matchKey];
 
         if (err.length > 0) {
             emit RequestError(requestId, matchKey, string(err));
@@ -314,46 +313,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         // Request ownership validation (prevents stale data corruption)
         if (requestInfo.requestType == RequestType.Status) {
+            MatchBet storage mb = matchBets[matchKey];
+
             if (mb.statusRequestId != requestId) {
                 emit RequestError(requestId, matchKey, "Stale Status Request Id");
                 return;
             }
-        }
 
-        if (requestInfo.requestType == RequestType.Roster) {
-            address requestor = requestInfo.wallet;
-            uint256 betAmount = requestInfo.betAmount;
-
-            if (betAmountsInRosterValidationFlight[requestor] < betAmount) {
-                emit RequestError(requestId, matchKey, "Bet was withdrawn during roster validation");
-                return;
-            }
-
-            bytes32 playerKey = requestInfo.playerKey;
-
-            if (response.length != 1) {
-                emit RequestError(requestId, matchKey, "Invalid Roster Response");
-                return;
-            }
-
-            uint8 fId = uint8(response[0]);
-            Faction playerFaction = Faction(fId);
-
-            if (playerFaction != Faction.Faction1 && playerFaction != Faction.Faction2) {
-                emit RequestError(requestId, matchKey, "Invalid player");
-                return;
-            }
-
-            mb.playerToFaction[playerKey] = playerFaction;
-
-            betAmountsInRosterValidationFlight[requestor] -= betAmount;
-            mb.walletToPlayerIdToBet[requestor][playerKey] += betAmount;
-
-            // Update totals
-            mb.factionTotals[fId] += betAmount;
-
-            emit RosterUpdated(matchKey, playerKey, playerFaction);
-        } else if (requestInfo.requestType == RequestType.Status) {
             if (response.length != 2) {
                 emit RequestError(requestId, matchKey, "Invalid Status Response");
                 return;
@@ -368,6 +334,40 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             }
 
             emit RequestFulfilled(requestId, matchKey, matchStatus, winnerFaction);
+        } else if (requestInfo.requestType == RequestType.Roster) {
+            address requestor = requestInfo.wallet;
+            uint256 betAmount = requestInfo.betAmount;
+
+            if (betAmountsInRosterValidationFlight[requestor] < betAmount) {
+                emit RequestError(requestId, matchKey, "Bet was withdrawn during roster validation");
+                return;
+            }
+
+            if (response.length != 1) {
+                emit RequestError(requestId, matchKey, "Invalid Roster Response");
+                return;
+            }
+
+            uint8 fId = uint8(response[0]);
+            Faction playerFaction = Faction(fId);
+
+            if (playerFaction != Faction.Faction1 && playerFaction != Faction.Faction2) {
+                emit RequestError(requestId, matchKey, "Invalid player");
+                return;
+            }
+
+            MatchBet storage mb = matchBets[matchKey];
+            bytes32 playerKey = requestInfo.playerKey;
+
+            mb.playerToFaction[playerKey] = playerFaction;
+
+            betAmountsInRosterValidationFlight[requestor] -= betAmount;
+            mb.walletToPlayerIdToBet[requestor][playerKey] += betAmount;
+
+            // Update totals
+            mb.factionTotals[fId] += betAmount;
+
+            emit RosterUpdated(matchKey, playerKey, playerFaction);
         }
     }
 
