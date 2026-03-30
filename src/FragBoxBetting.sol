@@ -41,7 +41,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
     uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
-    uint256 public constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
+    uint256 private constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
     uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
     uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
 
