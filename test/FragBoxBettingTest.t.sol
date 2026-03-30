@@ -261,7 +261,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
-        
+
         uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
         uint256 gasUsed = gasBefore - gasleft();
@@ -277,7 +277,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         bytes32 statusReq = super._captureRequestId();
 
         bytes memory response = bytes(PROCESSED_STATUS_ONGOING);
-        
+
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
         gasUsed = gasBefore - gasleft();
@@ -296,7 +296,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
-        
+
         uint256 gasBefore = gasleft();
         super._simulateFulfill(rosterReq, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
         uint256 gasUsed = gasBefore - gasleft();
