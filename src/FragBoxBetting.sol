@@ -33,12 +33,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
 
+    uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant TIMEOUT_DURATION = 24 hours;
     uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
     uint256 private constant PERCENTAGE_BASE = 100;
-    uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
     uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
     uint256 private constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
