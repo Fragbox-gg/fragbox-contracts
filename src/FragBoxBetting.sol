@@ -324,6 +324,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         if (requestInfo.requestType == RequestType.Roster) {
             address requestor = requestInfo.wallet;
+            uint256 betAmount = requestInfo.betAmount;
+
             if (betAmountsInRosterValidationFlight[requestor] < betAmount) {
                 emit RequestError(requestId, matchKey, "Bet was withdrawn during roster validation");
                 return;
@@ -346,7 +348,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             mb.playerToFaction[playerKey] = playerFaction;
 
-            uint256 betAmount = requestInfo.betAmount;
             betAmountsInRosterValidationFlight[requestor] -= betAmount;
             mb.walletToPlayerIdToBet[requestor][playerKey] += betAmount;
 
@@ -566,7 +567,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Allows the user to withdraw funds from the contract when they are in flight (chainlink functions) for roster validation
      * This phase occurs right after a user deposits (bets) for the first time on any match
      * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
-     * @param amountToWithdraw The amount of eth in wei to attempt to withdraw
      */
     function withdrawBetAmountsInRosterValidationFlight() external {
         uint256 withdrawalAmount = betAmountsInRosterValidationFlight[msg.sender];
@@ -663,10 +663,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
-     * @return The amount of eth in wei that is in roster validation flight
+     * @return The amount of eth in wei that is in roster validation flight for the msg.sender
      */
-    function getBetAmountsInRosterValidationFlight() external view onlyOwner returns (uint256) {
-        return betAmountsInRosterValidationFlight;
+    function getBetAmountsInRosterValidationFlight() external view returns (uint256) {
+        return betAmountsInRosterValidationFlight[msg.sender];
     }
 
     /**
