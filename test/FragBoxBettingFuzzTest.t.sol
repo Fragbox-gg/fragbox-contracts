@@ -46,6 +46,13 @@ contract FragBoxBettingFuzzTest is SimulateFunctionsOracle {
         uint256 bet1Fee = fragBoxBetting.calculateDepositFee(bet1);
         uint256 bet2Fee = fragBoxBetting.calculateDepositFee(bet2);
         uint256 betSum = (bet1 - bet1Fee) + (bet2 - bet2Fee);
-        assertEq(vw.totalBetAmount, betSum); // after 1% fee
+
+        uint256 sum = 0;
+        uint256 len = vw.factionTotals.length;
+        for (uint256 i = 0; i < len; i++) {
+            sum += vw.factionTotals[i];
+        }
+
+        assertEq(sum, betSum); // after 1% fee
     }
 }

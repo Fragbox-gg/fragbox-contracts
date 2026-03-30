@@ -71,7 +71,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         uint256[4] factionTotals; // 0 = Unknown, 1 = Faction1 total, 2 = Faction2, 3 = Draw
 
-        uint256 totalBetAmount;
         uint256 lastStatusUpdate;
 
         bytes32 statusRequestId;
@@ -88,7 +87,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         uint256[4] factionTotals;
 
-        uint256 totalBetAmount;
         uint256 lastStatusUpdate;
 
         bytes32 statusRequestId;
@@ -353,7 +351,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             // Update totals
             mb.factionTotals[fId] += betAmount;
-            mb.totalBetAmount += betAmount;
 
             emit RosterUpdated(matchKey, playerKey, playerFaction);
         } else if (requestInfo.requestType == RequestType.Status) {
@@ -424,7 +421,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
             // Update totals
             mb.factionTotals[uint8(faction)] += betAmount;
-            mb.totalBetAmount += betAmount;
         }
 
         emit BetPlaced(matchKey, msg.sender, betAmount, playerIdStr);
@@ -457,18 +453,20 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (winnerFaction == Faction.Unknown) revert FragBoxBetting__WinnerUnknown();
         uint8 winnerFId = uint8(winnerFaction);
 
+        uint256[4] storage winnerTotals = mb.factionTotals;
+
         // Draw or no winning bets -> full refund
-        if (winnerFaction == Faction.Draw || mb.factionTotals[winnerFId] == 0) {
+        if (winnerFaction == Faction.Draw || winnerTotals[winnerFId] == 0) {
             playerToWinnings[msg.sender][playerKey] += betAmount;
             mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
             emit MatchClaimed(matchKey);
             return;
         }
 
-        uint256 totalWinningBet = mb.factionTotals[winnerFId];
+        uint256 totalWinningBet = winnerTotals[winnerFId];
         uint256 totalLosingBet = (winnerFaction == Faction.Faction1)
-            ? mb.factionTotals[uint8(Faction.Faction2)]
-            : mb.factionTotals[uint8(Faction.Faction1)];
+            ? winnerTotals[uint8(Faction.Faction2)]
+            : winnerTotals[uint8(Faction.Faction1)];
 
         // STRICT SYMMETRY: winning side always gets exactly 2 * min(W, L)
         uint256 minBet = totalWinningBet < totalLosingBet ? totalWinningBet : totalLosingBet;
@@ -629,7 +627,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             factionTotals: mb.factionTotals,
             winnerFaction: mb.winnerFaction,
             statusRequestId: mb.statusRequestId,
-            totalBetAmount: mb.totalBetAmount,
             lastStatusUpdate: mb.lastStatusUpdate,
             matchStatus: mb.matchStatus
         });

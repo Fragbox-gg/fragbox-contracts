@@ -333,7 +333,14 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         vm.stopPrank();
 
         FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(fragBoxBetting.getKey(MATCHID));
-        assertGt(mb.totalBetAmount, 0);
+
+        uint256 sum = 0;
+        uint256 len = mb.factionTotals.length;
+        for (uint256 i = 0; i < len; i++) {
+            sum += mb.factionTotals[i];
+        }
+
+        assertGt(sum, 0);
     }
 
     function testEmergencyRefundAfterTimeout() public {
