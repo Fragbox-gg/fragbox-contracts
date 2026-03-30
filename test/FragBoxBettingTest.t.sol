@@ -222,6 +222,22 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         fragBoxBetting.deposit{value: tooSmallEth}(MATCHID, WINNING_PLAYERID);
     }
 
+    function testDepositWalletBans() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.banWallet(USER);
+
+        vm.startPrank(USER);
+        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__WalletBanned.selector));
+        fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID);
+        vm.stopPrank();
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.unbanWallet(USER);
+
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                    CHAINLINK FUNCTIONS INTEGRATION TESTS                   */
     /* -------------------------------------------------------------------------- */

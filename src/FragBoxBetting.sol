@@ -13,6 +13,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
+    error FragBoxBetting__WalletBanned();
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
@@ -93,6 +94,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
+    mapping(address wallet => bool isBanned) private bannedWallets;
 
     struct RequestInfo {
         RequestType requestType;
@@ -372,6 +374,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
     }
 
+    function banWallet(address wallet) external onlyOwner {
+        bannedWallets[wallet] = true;
+    }
+
+    function unbanWallet(address wallet) external onlyOwner {
+        bannedWallets[wallet] = false;
+    }
+
     /**
      * Place Bet on an ongoing faceit match that you are a part of. This is where players pay their deposit fee so that we don't have to calculate fees during payout/resolution
      * @param matchIdStr The id of the match the player is betting on
@@ -383,6 +393,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         nonReentrant
         whenNotPaused
     {
+        if (bannedWallets[msg.sender]) revert FragBoxBetting__WalletBanned();
+
         // The point of this is just to prevent anyone from sending an insanely large amount of money or an insanely small amount of money
         // We don't care if someone bets a large amount of money on a match, but we want to prevent mistakes (like someone sending 1000x the intended bet amount) and also prevent dust bets that would cause issues with the pro-rata calculations and leftover dust in the contract after payouts
         uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
