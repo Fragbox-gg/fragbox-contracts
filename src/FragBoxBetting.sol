@@ -545,6 +545,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             // Dust sweep for this division
             uint256 dust = numerator % totalWinningBet;
             ownerFeesCollected += dust;
+
+            // Refund excess when winning side overbet (symmetric to loser path)
+            if (totalWinningBet > totalLosingBet) {
+                uint256 excess = totalWinningBet - minBet;
+                uint256 excessNumerator = betAmount * excess;
+                payoutOrRefund += excessNumerator / totalWinningBet;
+
+                uint256 excessDust = excessNumerator % totalWinningBet;
+                ownerFeesCollected += excessDust;
+            }
         } else {
             // LOSER PATH: only get excess refund if losing faction overbet
             if (totalLosingBet <= totalWinningBet) {
