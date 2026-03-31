@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console, Vm} from "forge-std/Test.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 
-contract SimulateFunctionsOracle is Test {
+contract SimulateOracles is Test {
     FragBoxBetting internal fragBoxBettingContract;
     address internal chainLinkFunctionsRouterAddress;
 

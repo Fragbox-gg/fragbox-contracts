@@ -6,9 +6,9 @@ import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ETHReceiver} from "./mocks/ETHReceiver.sol";
-import {SimulateFunctionsOracle} from "./SimulateOracles.t.sol";
+import {SimulateOracles} from "./SimulateOracles.t.sol";
 
-contract FragBoxBettingTest is SimulateFunctionsOracle {
+contract FragBoxBettingTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
     address chainLinkFunctionsRouter;
 

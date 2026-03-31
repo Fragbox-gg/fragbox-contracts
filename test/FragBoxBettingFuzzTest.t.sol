@@ -5,10 +5,10 @@ import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {ETHReceiver} from "./mocks/ETHReceiver.sol";
-import {SimulateFunctionsOracle} from "./SimulateOracles.t.sol";
+import {SimulateOracles} from "./SimulateOracles.t.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract FragBoxBettingFuzzTest is SimulateFunctionsOracle {
+contract FragBoxBettingFuzzTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
     address chainLinkFunctionsRouter;
 
