@@ -31,4 +31,14 @@ contract FragBoxBettingInvariantTest is Test {
         // Rough sanity check that deposits actually happened
         assertTrue(handler.ghost_totalDeposited() >= 0);
     }
+
+    function invariant_emergencyRefundOnlyAfterTrueTimeout() public {
+        // after deposit, lastStatusUpdate must be > 0
+        // emergencyRefund must revert if < 24h from lastStatusUpdate
+    }
+
+    function invariant_contractBalanceConsistency() public {
+        // total ETH in contract == sum(all factionTotals) + sum(flight funds) + sum(playerToWinnings) + ownerFeesCollected
+        // (modulo any withdrawn owner fees)
+    }
 }

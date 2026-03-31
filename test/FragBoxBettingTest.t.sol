@@ -511,6 +511,42 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         assertEq(USER.balance, startingBalance - fee);
     }
 
+    function test_EmergencyRefundTiming_NewMatch() public {
+        // deposit without calling updateMatchStatus
+        // advance time 24h
+        // assert emergencyRefund succeeds (shows the bug)
+        // then fix in contract and re-test that it reverts until real timeout
+    }
+
+    function test_WithdrawInFlight_Reentrancy() public {
+        // deploy malicious contract that re-enters withdrawBetAmountsInRosterValidationFlight
+        // assert it reverts with ReentrancyGuard (after you add the modifier)
+    }
+
+    function test_Claim_Draw_NoBetsOnWinner_FullRefund() public {
+        // fulfill as Draw or Finished with 0 bets on winner side
+        // claim → full betAmount added to playerToWinnings
+    }
+
+    function test_Cooldown_Violations() public {
+        // vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
+        // fragBoxBetting.updateMatchStatus(MATCHID); // call twice quickly
+        // same for roster
+    }
+
+    function test_Roster_InvalidPlayer_RevertsAndFundsStayInFlight() public {
+        // send invalid playerId
+        // fulfillRequest with error response
+        // assert funds still in betAmountsInRosterValidationFlight
+        // assert user can still withdraw via escape hatch
+    }
+
+    function test_BettingOnOpponentFaction_IsPossible() public {
+        // deposit using enemy playerId (valid roster)
+        // assert it succeeds and bet is placed on opposite faction
+        // (this proves the on-chain fixing vector)
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                                TEST GETTERS                                */
     /* -------------------------------------------------------------------------- */

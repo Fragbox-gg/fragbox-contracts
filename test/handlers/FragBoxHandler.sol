@@ -5,8 +5,9 @@ import {Test, console} from "forge-std/Test.sol";
 import {CommonBase} from "forge-std/Base.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {FragBoxBetting} from "../../src/FragBoxBetting.sol";
+import {SimulateFunctionsOracle} from "../SimulateOracles.t.sol";
 
-contract FragBoxHandler is CommonBase, StdCheats, Test {
+contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateFunctionsOracle {
     FragBoxBetting public betting;
 
     address[] public actors;

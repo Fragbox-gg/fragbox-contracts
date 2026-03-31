@@ -13,6 +13,9 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
+    /* -------------------------------------------------------------------------- */
+    /*                                   ERRORS                                   */
+    /* -------------------------------------------------------------------------- */
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
@@ -21,7 +24,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__RosterAlreadyRequested();
     error FragBoxBetting__MatchIsFinishedOrOngoing();
     error FragBoxBetting__SecretsNotSet();
-    error FragBoxBetting__NoWinnings();
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
     error FragBoxBetting__NonOwnerFeeRequired();
@@ -33,18 +35,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     using FunctionsRequest for FunctionsRequest.Request;
     using OracleLib for AggregatorV3Interface;
 
-    uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
-    uint256 private constant PRECISION = 1e18;
-    uint256 private constant TIMEOUT_DURATION = 24 hours;
-    uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
-    uint256 private constant PERCENTAGE_BASE = 100;
-    uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
-    uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
-    uint256 private constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
-    uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
-    uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
-
+    /* -------------------------------------------------------------------------- */
+    /*                                    ENUMS                                   */
+    /* -------------------------------------------------------------------------- */
     enum Faction {
         Unknown,
         Faction1,
@@ -65,14 +58,22 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         Status
     }
 
+    /* -------------------------------------------------------------------------- */
+    /*                               CUSTOM STRUCTS                               */
+    /* -------------------------------------------------------------------------- */
+    struct BetAuthorization {
+        bytes32 matchKey;
+        string playerId;
+        uint256 betAmount;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     struct MatchBet {
         Faction winnerFaction;
         MatchStatus matchStatus;
-
         uint256[4] factionTotals; // 0 = Unknown, 1 = Faction1 total, 2 = Faction2, 3 = Draw
-
         uint256 lastStatusUpdate;
-
         bytes32 statusRequestId;
 
         mapping(address wallet => mapping(bytes32 playerKey => uint256 betAmount)) walletToPlayerIdToBet;
@@ -84,16 +85,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     struct MatchBetView {
         Faction winnerFaction;
         MatchStatus matchStatus;
-
         uint256[4] factionTotals;
-
         uint256 lastStatusUpdate;
-
         bytes32 statusRequestId;
     }
-
-    mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
-    mapping(address wallet => bool isBanned) private bannedWallets;
 
     struct RequestInfo {
         RequestType requestType;
@@ -103,9 +98,38 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         address wallet;
     }
 
-    mapping(bytes32 requestId => RequestInfo requestInfo) private requestIdToInfo;
-    mapping(address wallet => mapping(bytes32 playerKey => uint256 winnings)) private playerToWinnings;
+    /* -------------------------------------------------------------------------- */
+    /*                                   EVENTS                                   */
+    /* -------------------------------------------------------------------------- */
+    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
+    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
+    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction);
+    event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
+    event EmergencyRefund(bytes32 indexed matchKey);
+    event MatchClaimed(bytes32 indexed matchKey);
+    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
+    event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
+    event PermitSignerUpdated(address indexed oldSigner, address indexed newSigner);
 
+    /* -------------------------------------------------------------------------- */
+    /*                                  CONSTANTS                                 */
+    /* -------------------------------------------------------------------------- */
+    bytes32 public constant DEPOSIT_PERMIT_TYPEHASH = keccak256("DepositPermit(bytes32 matchKey,string playerId,uint256 depositAmount,uint256 nonce,uint256 deadline)");
+    uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
+    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
+    uint256 private constant PRECISION = 1e18;
+    uint256 private constant TIMEOUT_DURATION = 24 hours;
+    uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
+    uint256 private constant PERCENTAGE_BASE = 100;
+    uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
+    uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
+    uint256 private constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
+    uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
+    uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
+
+    /* -------------------------------------------------------------------------- */
+    /*                             IMMUTABLE VARIABLES                            */
+    /* -------------------------------------------------------------------------- */
     AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
     bytes32 private immutable I_DONID;
@@ -113,31 +137,63 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     string private I_GETROSTER;
     string private I_GETSTATUS;
 
-    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RequestFulfilled(
-        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
-    );
-    event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
-    event EmergencyRefund(bytes32 indexed matchKey);
-    event MatchClaimed(bytes32 indexed matchKey);
-    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
-    event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
+    /* -------------------------------------------------------------------------- */
+    /*                              STORAGE VARIABLES                             */
+    /* -------------------------------------------------------------------------- */
+    mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
+    mapping(bytes32 requestId => RequestInfo requestInfo) private requestIdToInfo;
+    mapping(address wallet => uint256 amount) private betAmountsInRosterValidationFlight;
+    mapping(address wallet => mapping(bytes32 playerKey => uint256 winnings)) private playerToWinnings;
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
-
-    mapping(address wallet => uint256 amount) private betAmountsInRosterValidationFlight;
     uint256 private ownerFeesCollected;
 
+    constructor(
+        address ethUsdPriceFeed,
+        address chainLinkFunctionsRouter,
+        bytes32 donId,
+        uint64 subscriptionId,
+        string memory getRoster,
+        string memory getStatus
+    ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
+        I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
+        I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
+        I_DONID = donId;
+        I_SUBSCRIPTIONID = subscriptionId;
+        I_GETROSTER = getRoster;
+        I_GETSTATUS = getStatus;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                  MODIFIERS                                 */
+    /* -------------------------------------------------------------------------- */
+    modifier costsFeeOrOwner(uint256 feeAmount) {
+        _costsFeeOrOwner(feeAmount);
+        _;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /*                             INTERNAL FUNCTIONS                             */
+    /* -------------------------------------------------------------------------- */
     /**
-     * Specifies the necessary parameters to use chainlink functions DON-hosted secrets (faceit API key)
-     * @param _slotId The slotId associated with the secret
-     * @param _version The version of the secret
+     * Checks if the caller has paid the required fee or is the owner
+     * @param feeAmount The minimum fee necessary for the function (in USD with 18 decimals, e.g. 20 * 1e18 for $20)
      */
-    function updateDonSecrets(uint8 _slotId, uint64 _version) external onlyOwner {
-        donHostedSecretsSlotId = _slotId;
-        donHostedSecretsVersion = _version;
+    function _costsFeeOrOwner(uint256 feeAmount) internal {
+        if (msg.sender != owner()) {
+            // Require some ETH is sent (basic protection)
+            if (msg.value == 0) revert FragBoxBetting__NonOwnerFeeRequired();
+
+            uint256 usdValueWei = getUsdValueOfEth(msg.value);
+            if (usdValueWei < feeAmount) {
+                revert FragBoxBetting__NonOwnerFeeRequired();
+            }
+
+            // Accumulate the fee (you could also send to owner instantly, but accumulating is fine)
+            ownerFeesCollected += msg.value;
+        }
+        // No refund logic here — we accept exact or overpayment (common pattern)
     }
 
     /**
@@ -173,22 +229,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (hash == keccak256(bytes("Ongoing"))) return MatchStatus.Ongoing;
         if (hash == keccak256(bytes("Finished"))) return MatchStatus.Finished;
         return MatchStatus.Unknown;
-    }
-
-    constructor(
-        address ethUsdPriceFeed,
-        address chainLinkFunctionsRouter,
-        bytes32 donId,
-        uint64 subscriptionId,
-        string memory getRoster,
-        string memory getStatus
-    ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
-        I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
-        I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
-        I_DONID = donId;
-        I_SUBSCRIPTIONID = subscriptionId;
-        I_GETROSTER = getRoster;
-        I_GETSTATUS = getStatus;
     }
 
     /**
@@ -240,25 +280,17 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         emit RequestSent(requestId, matchKey);
     }
 
-    modifier costsFeeOrOwner() {
-        _costsFeeOrOwner();
-        _;
-    }
-
-    function _costsFeeOrOwner() internal {
-        if (msg.sender != owner()) {
-            // Require some ETH is sent (basic protection)
-            if (msg.value == 0) revert FragBoxBetting__NonOwnerFeeRequired();
-
-            uint256 usdValueWei = getUsdValueOfEth(msg.value);
-            if (usdValueWei < MIN_STATUS_UPDATE_FEE_USD) {
-                revert FragBoxBetting__NonOwnerFeeRequired();
-            }
-
-            // Accumulate the fee (you could also send to owner instantly, but accumulating is fine)
-            ownerFeesCollected += msg.value;
-        }
-        // No refund logic here — we accept exact or overpayment (common pattern)
+    /* -------------------------------------------------------------------------- */
+    /*                             EXTERNAL FUNCTIONS                             */
+    /* -------------------------------------------------------------------------- */
+    /**
+     * Specifies the necessary parameters to use chainlink functions DON-hosted secrets (faceit API key)
+     * @param _slotId The slotId associated with the secret
+     * @param _version The version of the secret
+     */
+    function updateDonSecrets(uint8 _slotId, uint64 _version) external onlyOwner {
+        donHostedSecretsSlotId = _slotId;
+        donHostedSecretsVersion = _version;
     }
 
     /**
@@ -266,7 +298,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external payable whenNotPaused costsFeeOrOwner {
+    function updateMatchStatus(string calldata matchIdStr) external payable whenNotPaused costsFeeOrOwner(MIN_STATUS_UPDATE_FEE_USD) {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
