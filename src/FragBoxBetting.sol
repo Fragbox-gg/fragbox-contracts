@@ -103,7 +103,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
     event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction);
+    event RequestFulfilled(
+        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
+    );
     event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
     event EmergencyRefund(bytes32 indexed matchKey);
     event MatchClaimed(bytes32 indexed matchKey);
@@ -114,7 +116,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
     /* -------------------------------------------------------------------------- */
-    bytes32 public constant DEPOSIT_PERMIT_TYPEHASH = keccak256("DepositPermit(bytes32 matchKey,string playerId,uint256 depositAmount,uint256 nonce,uint256 deadline)");
+    bytes32 public constant DEPOSIT_PERMIT_TYPEHASH = keccak256(
+        "DepositPermit(bytes32 matchKey,string playerId,uint256 depositAmount,uint256 nonce,uint256 deadline)"
+    );
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
@@ -298,7 +302,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external payable whenNotPaused costsFeeOrOwner(MIN_STATUS_UPDATE_FEE_USD) {
+    function updateMatchStatus(string calldata matchIdStr)
+        external
+        payable
+        whenNotPaused
+        costsFeeOrOwner(MIN_STATUS_UPDATE_FEE_USD)
+    {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 

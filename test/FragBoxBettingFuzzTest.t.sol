@@ -57,14 +57,12 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         assertEq(sum, betSum); // after 1% fee
     }
 
-    function testFuzz_ClaimPayoutSymmetry(
-        uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2
-    ) public {
+    function testFuzz_ClaimPayoutSymmetry(uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2) public {
         // setup match, deposit various amounts on F1/F2, fulfill as Finished with winner = F1
         // ... (use your existing SimulateFunctionsOracle helpers)
         uint256 totalWin = 0;
         uint256 totalLose = 0;
-        
+
         uint256 minBet = Math.min(totalWin, totalLose);
         uint256 expectedTotalToWinners = 2 * minBet;
 
@@ -73,6 +71,4 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         // assert losers received excess only if applicable
         // assert contract balance + ownerFees == totalDeposits (invariant)
     }
-
-
 }
