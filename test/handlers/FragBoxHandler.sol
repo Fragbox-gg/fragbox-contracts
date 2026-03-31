@@ -5,8 +5,9 @@ import {Test, console} from "forge-std/Test.sol";
 import {CommonBase} from "forge-std/Base.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {FragBoxBetting} from "../../src/FragBoxBetting.sol";
+import {SimulateOracles} from "../SimulateOracles.t.sol";
 
-contract FragBoxHandler is CommonBase, StdCheats, Test {
+contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     FragBoxBetting public betting;
 
     address[] public actors;
@@ -40,6 +41,11 @@ contract FragBoxHandler is CommonBase, StdCheats, Test {
         string memory playerId = factionIdx % 2 == 0 ? PLAYER_WIN : PLAYER_LOSE;
 
         amount = bound(amount, 0.01 ether, 3 ether); // above min bet
+
+        if (betting.getRegisteredWallet(playerId) != actor) {
+            vm.prank(betting.owner());
+            betting.registerPlayerWallet(playerId, actor);
+        }
 
         vm.prank(actor);
         betting.deposit{value: amount}(MATCH_ID, playerId);

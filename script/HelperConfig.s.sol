@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.24;
 
 import {MockV3Aggregator} from "@chainlink/contracts/src/v0.8/tests/MockV3Aggregator.sol";
@@ -17,7 +16,6 @@ contract HelperConfig is Script, ChainChecker {
         address chainLinkFunctionsRouter;
         bytes32 donId;
         uint64 subscriptionId;
-        address linkToken;
         uint64 donHostedSecretsVersion;
     }
 
@@ -39,7 +37,6 @@ contract HelperConfig is Script, ChainChecker {
             chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
             donId: 0x66756e2d626173652d6d61696e6e65742d310000000000000000000000000000,
             subscriptionId: 0, // TODO
-            linkToken: 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196,
             donHostedSecretsVersion: 0 // TODO
         });
     }
@@ -50,7 +47,6 @@ contract HelperConfig is Script, ChainChecker {
             chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
             donId: 0x66756e2d626173652d7365706f6c69612d310000000000000000000000000000,
             subscriptionId: 607,
-            linkToken: 0xE4aB69C077896252FAFBD49EFD26B5D171A32410,
             donHostedSecretsVersion: 1774138413
         });
     }
@@ -74,7 +70,6 @@ contract HelperConfig is Script, ChainChecker {
             chainLinkFunctionsRouter: address(0),
             donId: bytes32(0),
             subscriptionId: 0,
-            linkToken: address(0),
             donHostedSecretsVersion: 0
         });
         return anvilConfig;

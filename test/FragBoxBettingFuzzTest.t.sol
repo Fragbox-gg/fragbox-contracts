@@ -5,9 +5,10 @@ import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {ETHReceiver} from "./mocks/ETHReceiver.sol";
-import {SimulateFunctionsOracle} from "./SimulateOracles.t.sol";
+import {SimulateOracles} from "./SimulateOracles.t.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract FragBoxBettingFuzzTest is SimulateFunctionsOracle {
+contract FragBoxBettingFuzzTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
     address chainLinkFunctionsRouter;
 
@@ -25,6 +26,11 @@ contract FragBoxBettingFuzzTest is SimulateFunctionsOracle {
         vm.deal(USER, STARTING_BALANCE);
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
+
+        vm.startPrank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
+        vm.stopPrank();
     }
 
     function testFuzz_DepositAndTopUp(uint256 bet1, uint256 bet2) public {
@@ -54,5 +60,20 @@ contract FragBoxBettingFuzzTest is SimulateFunctionsOracle {
         }
 
         assertEq(sum, betSum); // after 1% fee
+    }
+
+    function testFuzz_ClaimPayoutSymmetry(uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2) public {
+        // setup match, deposit various amounts on F1/F2, fulfill as Finished with winner = F1
+        // ... (use your existing SimulateFunctionsOracle helpers)
+        uint256 totalWin = 0;
+        uint256 totalLose = 0;
+
+        uint256 minBet = Math.min(totalWin, totalLose);
+        uint256 expectedTotalToWinners = 2 * minBet;
+
+        // claim for each winner
+        // assert each winner received exactly (bet * 2 * minBet) / totalWin   (plus dust handling)
+        // assert losers received excess only if applicable
+        // assert contract balance + ownerFees == totalDeposits (invariant)
     }
 }

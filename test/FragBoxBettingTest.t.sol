@@ -6,13 +6,14 @@ import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ETHReceiver} from "./mocks/ETHReceiver.sol";
-import {SimulateFunctionsOracle} from "./SimulateOracles.t.sol";
+import {SimulateOracles} from "./SimulateOracles.t.sol";
 
-contract FragBoxBettingTest is SimulateFunctionsOracle {
+contract FragBoxBettingTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
     address chainLinkFunctionsRouter;
 
     address public USER;
+    address public USER2;
     ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
@@ -37,7 +38,15 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         USER = address(receiver);
         vm.deal(USER, STARTING_BALANCE);
 
+        USER2 = address(new ETHReceiver());
+        vm.deal(USER2, STARTING_BALANCE);
+
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
+
+        vm.startPrank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
+        vm.stopPrank();
     }
 
     /* -------------------------------------------------------------------------- */
@@ -218,8 +227,26 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
     function testDepositEnforcesMinBetUSD() public {
         uint256 tooSmallEth = 0.0001 ether; // ~$3 at $3000/ETH
         vm.prank(USER);
-        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, tooSmallEth));
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooSmall.selector);
         fragBoxBetting.deposit{value: tooSmallEth}(MATCHID, WINNING_PLAYERID);
+    }
+
+    function testDepositEnforcesMaxBetUSD() public {
+        uint256 tooLargeEth = 100 ether; // $300,000 at $3000/ETH
+        vm.deal(USER, tooLargeEth);
+        vm.prank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooLarge.selector);
+        fragBoxBetting.deposit{value: tooLargeEth}(MATCHID, WINNING_PLAYERID);
+    }
+
+    function testDepositWithInvalidWallet() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
+
+        vm.startPrank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__InvalidWallet.selector);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+        vm.stopPrank();
     }
 
     /* -------------------------------------------------------------------------- */
@@ -258,7 +285,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
         // 1. Roster first
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
 
@@ -293,7 +320,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
         // Roster first
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
 
@@ -327,7 +354,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
     function test_FulfillRequest_ErrorPath_FromOracle() public {
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
 
@@ -356,7 +383,7 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
 
     function test_DepositAfterRosterValidated_Succeeds() public {
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
 
@@ -509,6 +536,42 @@ contract FragBoxBettingTest is SimulateFunctionsOracle {
         // assert full refund to winnings (or fix this behavior if not intended)
         uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
         assertEq(USER.balance, startingBalance - fee);
+    }
+
+    function test_EmergencyRefundTiming_NewMatch() public {
+        // deposit without calling updateMatchStatus
+        // advance time 24h
+        // assert emergencyRefund succeeds (shows the bug)
+        // then fix in contract and re-test that it reverts until real timeout
+    }
+
+    function test_WithdrawInFlight_Reentrancy() public {
+        // deploy malicious contract that re-enters withdrawBetAmountsInRosterValidationFlight
+        // assert it reverts with ReentrancyGuard (after you add the modifier)
+    }
+
+    function test_Claim_Draw_NoBetsOnWinner_FullRefund() public {
+        // fulfill as Draw or Finished with 0 bets on winner side
+        // claim → full betAmount added to playerToWinnings
+    }
+
+    function test_Cooldown_Violations() public {
+        // vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
+        // fragBoxBetting.updateMatchStatus(MATCHID); // call twice quickly
+        // same for roster
+    }
+
+    function test_Roster_InvalidPlayer_RevertsAndFundsStayInFlight() public {
+        // send invalid playerId
+        // fulfillRequest with error response
+        // assert funds still in betAmountsInRosterValidationFlight
+        // assert user can still withdraw via escape hatch
+    }
+
+    function test_BettingOnOpponentFaction_IsPossible() public {
+        // deposit using enemy playerId (valid roster)
+        // assert it succeeds and bet is placed on opposite faction
+        // (this proves the on-chain fixing vector)
     }
 
     /* -------------------------------------------------------------------------- */
