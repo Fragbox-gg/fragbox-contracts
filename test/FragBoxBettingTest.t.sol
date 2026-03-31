@@ -38,6 +38,11 @@ contract FragBoxBettingTest is SimulateOracles {
         vm.deal(USER, STARTING_BALANCE);
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
+
+        vm.startPrank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
+        vm.stopPrank();
     }
 
     /* -------------------------------------------------------------------------- */
@@ -258,7 +263,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
         // 1. Roster first
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
 
@@ -293,7 +298,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
         // Roster first
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 rosterReq = super._captureRequestId();
 
@@ -327,7 +332,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
     function test_FulfillRequest_ErrorPath_FromOracle() public {
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
 
@@ -356,7 +361,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
     function test_DepositAfterRosterValidated_Succeeds() public {
         super._startRequestCapture();
-        vm.prank(fragBoxBetting.owner());
+        vm.prank(USER);
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
 

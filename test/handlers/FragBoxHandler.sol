@@ -42,6 +42,11 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         amount = bound(amount, 0.01 ether, 3 ether); // above min bet
 
+        if (betting.getRegisteredWallet(playerId) != actor) {
+            vm.prank(betting.owner());
+            betting.registerPlayerWallet(playerId, actor);
+        }
+
         vm.prank(actor);
         betting.deposit{value: amount}(MATCH_ID, playerId);
 

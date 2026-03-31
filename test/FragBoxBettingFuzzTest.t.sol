@@ -26,6 +26,11 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         vm.deal(USER, STARTING_BALANCE);
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
+
+        vm.startPrank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
+        vm.stopPrank();
     }
 
     function testFuzz_DepositAndTopUp(uint256 bet1, uint256 bet2) public {

@@ -16,6 +16,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                   ERRORS                                   */
     /* -------------------------------------------------------------------------- */
+    error FragBoxBetting__InvalidWallet();
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
@@ -112,6 +113,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
     event PermitSignerUpdated(address indexed oldSigner, address indexed newSigner);
+    event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
@@ -145,6 +147,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /*                              STORAGE VARIABLES                             */
     /* -------------------------------------------------------------------------- */
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
+    mapping(bytes32 playerId => address registeredWallet) private playerIdToRegisteredWallet;
     mapping(bytes32 requestId => RequestInfo requestInfo) private requestIdToInfo;
     mapping(address wallet => uint256 amount) private betAmountsInRosterValidationFlight;
     mapping(address wallet => mapping(bytes32 playerKey => uint256 winnings)) private playerToWinnings;
@@ -298,6 +301,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
+     * @notice Backend-only: Register a playerId → wallet after successful Faceit/Steam OAuth + RainbowKit connect.
+     * This is the single source of truth that prevents match fixing.
+     * @param playerIdStr The playerId to register
+     * @param wallet The wallet to register
+     */
+    function registerPlayerWallet(string calldata playerIdStr, address wallet) external onlyOwner {
+        bytes32 playerKey = _getKey(playerIdStr);
+        playerIdToRegisteredWallet[playerKey] = wallet;
+        emit PlayerRegistered(playerKey, wallet, playerIdStr);
+    }
+
+    /**
      * Called REPEATEDLY by backend to update match status
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
@@ -442,6 +457,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__MatchIsFinishedOrOngoing();
         }
 
+        // === THIS IS THE MATCH-FIXING PREVENTION ===
+        bytes32 playerKey = _getKey(playerIdStr);
+        if (playerIdToRegisteredWallet[playerKey] != msg.sender) {
+            revert FragBoxBetting__InvalidWallet();
+        }
+
         // Calculate house fee and actual bet amount
         uint256 fee = calculateDepositFee(msg.value);
         uint256 betAmount = msg.value - fee;
@@ -453,7 +474,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         // Send fee to owner
         ownerFeesCollected += fee;
 
-        bytes32 playerKey = _getKey(playerIdStr);
         Faction faction = mb.playerToFaction[playerKey];
 
         if (faction == Faction.Unknown) {
@@ -707,6 +727,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function getBetAmountsInRosterValidationFlight() external view returns (uint256) {
         return betAmountsInRosterValidationFlight[msg.sender];
+    }
+
+    /**
+     * @param playerIdStr The playerId to get the registered wallet of
+     * @return The wallet registered to the playerId
+     */
+    function getRegisteredWallet(string calldata playerIdStr) external view returns (address) {
+        return playerIdToRegisteredWallet[_getKey(playerIdStr)];
     }
 
     /**
