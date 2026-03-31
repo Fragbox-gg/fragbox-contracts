@@ -13,6 +13,7 @@ contract FragBoxBettingTest is SimulateOracles {
     address chainLinkFunctionsRouter;
 
     address public USER;
+    address public USER2;
     ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
@@ -36,6 +37,9 @@ contract FragBoxBettingTest is SimulateOracles {
         receiver = new ETHReceiver();
         USER = address(receiver);
         vm.deal(USER, STARTING_BALANCE);
+
+        USER2 = address(new ETHReceiver());
+        vm.deal(USER2, STARTING_BALANCE);
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
 
@@ -223,8 +227,26 @@ contract FragBoxBettingTest is SimulateOracles {
     function testDepositEnforcesMinBetUSD() public {
         uint256 tooSmallEth = 0.0001 ether; // ~$3 at $3000/ETH
         vm.prank(USER);
-        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, tooSmallEth));
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooSmall.selector);
         fragBoxBetting.deposit{value: tooSmallEth}(MATCHID, WINNING_PLAYERID);
+    }
+
+    function testDepositEnforcesMaxBetUSD() public {
+        uint256 tooLargeEth = 100 ether; // $300,000 at $3000/ETH
+        vm.deal(USER, tooLargeEth);
+        vm.prank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooLarge.selector);
+        fragBoxBetting.deposit{value: tooLargeEth}(MATCHID, WINNING_PLAYERID);
+    }
+
+    function testDepositWithInvalidWallet() public {
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
+
+        vm.startPrank(USER);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__InvalidWallet.selector);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+        vm.stopPrank();
     }
 
     /* -------------------------------------------------------------------------- */

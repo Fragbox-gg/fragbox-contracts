@@ -457,7 +457,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__MatchIsFinishedOrOngoing();
         }
 
-        // === THIS IS THE MATCH-FIXING PREVENTION ===
+        // This prevents match fixing by forcing players to register their wallet addresses beforehand
         bytes32 playerKey = _getKey(playerIdStr);
         if (playerIdToRegisteredWallet[playerKey] != msg.sender) {
             revert FragBoxBetting__InvalidWallet();
