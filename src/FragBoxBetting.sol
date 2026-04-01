@@ -393,7 +393,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             // First status update must land on Unknown / Voting / Ready.
             // Anything else means the match skipped the betting window → invalid + full refunds.
             if (currentMatchStatus == MatchStatus.Unknown) {
-                if (newMatchStatus != MatchStatus.Unknown && newMatchStatus != MatchStatus.Voting && newMatchStatus != MatchStatus.Ready) {
+                if (
+                    newMatchStatus != MatchStatus.Unknown && newMatchStatus != MatchStatus.Voting
+                        && newMatchStatus != MatchStatus.Ready
+                ) {
                     console.log("Setting match status to invalid");
                     mb.matchStatus = MatchStatus.Invalid;
                     emit RequestFulfilled(requestId, matchKey, MatchStatus.Invalid, Faction.Unknown);
@@ -528,14 +531,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         MatchBet storage mb = matchBets[matchKey];
 
         MatchStatus matchStatus = mb.matchStatus;
-        if (matchStatus != MatchStatus.Finished && matchStatus != MatchStatus.Invalid) revert FragBoxBetting__MatchNotFinished();
+        if (matchStatus != MatchStatus.Finished && matchStatus != MatchStatus.Invalid) {
+            revert FragBoxBetting__MatchNotFinished();
+        }
 
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
         if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
 
         Faction winnerFaction = mb.winnerFaction;
-        if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) revert FragBoxBetting__WinnerUnknown();
+        if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) {
+            revert FragBoxBetting__WinnerUnknown();
+        }
         uint8 winnerFId = uint8(winnerFaction);
 
         uint256[4] storage winnerTotals = mb.factionTotals;
