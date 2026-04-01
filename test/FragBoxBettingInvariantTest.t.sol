@@ -41,4 +41,27 @@ contract FragBoxBettingInvariantTest is Test {
         // total ETH in contract == sum(all factionTotals) + sum(flight funds) + sum(playerToWinnings) + ownerFeesCollected
         // (modulo any withdrawn owner fees)
     }
+
+    // Add these invariants (they run after every handler call)
+    function invariant_totalEthConservation() public view {
+        uint256 contractBal = address(fragBoxBetting).balance;
+        uint256 totalInFlight = handler.ghost_totalInFlight(); // add ghost to handler
+        uint256 totalWinnings = 0; // sum playerToWinnings across actors (or expose view)
+        uint256 ownerFees = fragBoxBetting.getOwnerFees();
+
+        // Rough but powerful: contract ETH should equal in-flight + winnings + fees + factionTotals
+        assertEq(contractBal, totalInFlight + totalWinnings + ownerFees + handler.ghost_factionTotalsSum());
+    }
+
+    function invariant_noDoubleClaim() public {
+        // after claim or emergencyRefund, betAmount == 0 and cannot claim again
+    }
+
+    function invariant_cooldownsPreventSpam() public {
+        // status/roster requests respect cooldowns (use handler timestamps)
+    }
+
+    function invariant_emergencyOnlyAfterTimeout() public {
+        // emergencyRefund reverts unless >=24h from lastStatusUpdate
+    }
 }

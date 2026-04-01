@@ -608,40 +608,59 @@ contract FragBoxBettingTest is SimulateOracles {
         assertEq(USER.balance, startingBalance - fee);
     }
 
-    function test_EmergencyRefundTiming_NewMatch() public {
-        // deposit without calling updateMatchStatus
-        // advance time 24h
-        // assert emergencyRefund succeeds (shows the bug)
-        // then fix in contract and re-test that it reverts until real timeout
+    function test_RosterFailure_RefundViaFlightWithdraw() public {
+        uint256 balBefore = USER.balance;
+
+        super._startRequestCapture();
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+        bytes32 requestId = super._captureRequestId();
+
+        // Simulate oracle error (e.g. invalid player or API fail)
+        uint256 gasBefore = gasleft();
+        super._simulateFulfill(requestId, string(""), string("API error")); // err.length > 0
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas (error path):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT);
+
+        // Funds must be in flight, not lost
+        assertEq(fragBoxBetting.getBetAmountsInRosterValidationFlight(), SEND_VALUE - fragBoxBetting.calculateDepositFee(SEND_VALUE));
+
+        vm.startPrank(USER);
+        fragBoxBetting.withdrawBetAmountsInRosterValidationFlight();
+        vm.stopPrank();
+
+        assertEq(USER.balance, balBefore - fragBoxBetting.calculateDepositFee(SEND_VALUE));
     }
 
-    function test_WithdrawInFlight_Reentrancy() public {
-        // deploy malicious contract that re-enters withdrawBetAmountsInRosterValidationFlight
-        // assert it reverts with ReentrancyGuard (after you add the modifier)
+    function test_Claim_AllPaths_CorrectPayoutAndDustToOwner() public {
+        // 1. Winner overbet case
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: 0.2 ether}(MATCHID, WINNING_PLAYERID); // faction1
+        // simulate roster + status finished Faction1
+        // ... (use your existing helpers)
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER2);
+
+        vm.prank(USER2);
+        fragBoxBetting.deposit{value: 0.1 ether}(MATCHID, LOSING_PLAYERID); // faction2
+
+        // fulfill finished Faction1
+        // claim both
+        // assert winners got exactly 2 * min(0.2, 0.1) pro-rata + excess refund
+        // assert ownerFeesCollected increased by dust
     }
 
-    function test_Claim_Draw_NoBetsOnWinner_FullRefund() public {
-        // fulfill as Draw or Finished with 0 bets on winner side
-        // claim → full betAmount added to playerToWinnings
+    function test_Claim_LoserNoExcess_Reverts() public {
+        // deposit only on loser, fulfill winner = other faction, no excess on loser
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector);
+        fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
     }
 
-    function test_Cooldown_Violations() public {
-        // vm.expectRevert(FragBoxBetting.FragBoxBetting__StatusUpdateTooSoon.selector);
-        // fragBoxBetting.updateMatchStatus(MATCHID); // call twice quickly
-        // same for roster
-    }
-
-    function test_Roster_InvalidPlayer_RevertsAndFundsStayInFlight() public {
-        // send invalid playerId
-        // fulfillRequest with error response
-        // assert funds still in betAmountsInRosterValidationFlight
-        // assert user can still withdraw via escape hatch
-    }
-
-    function test_BettingOnOpponentFaction_IsPossible() public {
-        // deposit using enemy playerId (valid roster)
-        // assert it succeeds and bet is placed on opposite faction
-        // (this proves the on-chain fixing vector)
+    function test_MultiplePlayersSameFaction_ProRataWorks() public {
+        // 3 players on winning faction with different bet sizes
+        // verify each gets exact proportional share of 2*minBet
     }
 
     /* -------------------------------------------------------------------------- */

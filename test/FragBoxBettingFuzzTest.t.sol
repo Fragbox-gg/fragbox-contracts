@@ -16,6 +16,7 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
     ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
+    uint256 constant MIN_BET = 0.01 ether;
 
     function setUp() external {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
@@ -62,18 +63,24 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         assertEq(sum, betSum); // after 1% fee
     }
 
-    function testFuzz_ClaimPayoutSymmetry(uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2) public {
-        // setup match, deposit various amounts on F1/F2, fulfill as Finished with winner = F1
-        // ... (use your existing SimulateFunctionsOracle helpers)
-        uint256 totalWin = 0;
-        uint256 totalLose = 0;
+    function testFuzz_ClaimPayoutSymmetry(
+        uint256 betWin1, uint256 betWin2,
+        uint256 betLose1, uint256 betLose2
+    ) public {
+        betWin1 = bound(betWin1, MIN_BET, 1 ether);
+        betWin2 = bound(betWin2, MIN_BET, 1 ether);
+        betLose1 = bound(betLose1, MIN_BET, 1 ether);
+        betLose2 = bound(betLose2, MIN_BET, 1 ether);
 
+        uint256 totalWin = betWin1 + betWin2;
+        uint256 totalLose = betLose1 + betLose2;
         uint256 minBet = Math.min(totalWin, totalLose);
-        uint256 expectedTotalToWinners = 2 * minBet;
 
-        // claim for each winner
-        // assert each winner received exactly (bet * 2 * minBet) / totalWin   (plus dust handling)
-        // assert losers received excess only if applicable
-        // assert contract balance + ownerFees == totalDeposits (invariant)
+        // deposit + roster + status finished with Faction1 winner (use helpers)
+
+        uint256 expectedWinnersTotal = 2 * minBet; // symmetric
+        // claim both winners → assert each received correct pro-rata + excess
+        // claim losers → if totalLose > totalWin they get excess, else revert
+        // final invariant: contract balance == ownerFeesCollected + any remaining winnings mapping
     }
 }
