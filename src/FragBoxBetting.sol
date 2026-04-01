@@ -11,7 +11,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
@@ -397,7 +396,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                     newMatchStatus != MatchStatus.Unknown && newMatchStatus != MatchStatus.Voting
                         && newMatchStatus != MatchStatus.Ready
                 ) {
-                    console.log("Setting match status to invalid");
                     mb.matchStatus = MatchStatus.Invalid;
                     emit RequestFulfilled(requestId, matchKey, MatchStatus.Invalid, Faction.Unknown);
                     return;
