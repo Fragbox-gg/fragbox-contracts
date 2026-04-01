@@ -9,7 +9,6 @@ import {OracleLib} from "./libraries/OracleLib.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
@@ -64,14 +63,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                               CUSTOM STRUCTS                               */
     /* -------------------------------------------------------------------------- */
-    struct BetAuthorization {
-        bytes32 matchKey;
-        string playerId;
-        uint256 betAmount;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
     struct MatchBet {
         Faction winnerFaction;
         MatchStatus matchStatus;
@@ -114,15 +105,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
-    event PermitSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
     /* -------------------------------------------------------------------------- */
-    bytes32 public constant DEPOSIT_PERMIT_TYPEHASH = keccak256(
-        "DepositPermit(bytes32 matchKey,string playerId,uint256 depositAmount,uint256 nonce,uint256 deadline)"
-    );
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
