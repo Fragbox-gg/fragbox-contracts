@@ -18,6 +18,7 @@ contract FragBoxBettingTest is SimulateOracles {
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
     uint256 constant CALLBACK_GAS_LIMIT = 250_000;
+    uint256 constant WARP_TIME = 5 minutes;
 
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
@@ -295,15 +296,16 @@ contract FragBoxBettingTest is SimulateOracles {
         console.log("fulfillRequest gas used (Roster update):", gasUsed);
         assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
-        vm.warp(block.timestamp + 6 minutes);
+        FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
+        assert(mb.matchStatus == FragBoxBetting.MatchStatus.Unknown);
 
-        // 2. Status update
+        // 2. Status update to voting
         super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusReq = super._captureRequestId();
 
-        bytes memory response = bytes(PROCESSED_STATUS_ONGOING);
+        bytes memory response = bytes(PROCESSED_STATUS_VOTING);
 
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
@@ -311,7 +313,26 @@ contract FragBoxBettingTest is SimulateOracles {
         console.log("fulfillRequest gas used (status ongoing):", gasUsed);
         assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
-        FragBoxBetting.MatchBetView memory mb = fragBoxBetting.getMatchBet(matchKey);
+        mb = fragBoxBetting.getMatchBet(matchKey);
+        assert(mb.matchStatus == FragBoxBetting.MatchStatus.Voting);
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        // 3. Status update to ongoing
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusReq = super._captureRequestId();
+
+        response = bytes(PROCESSED_STATUS_ONGOING);
+
+        gasBefore = gasleft();
+        super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status ongoing):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
+
+        mb = fragBoxBetting.getMatchBet(matchKey);
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Ongoing);
     }
 
@@ -330,13 +351,32 @@ contract FragBoxBettingTest is SimulateOracles {
         console.log("fulfillRequest gas used (Roster update):", gasUsed);
         assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
-        // Finished status (uses "faction2" from your real JSON)
+        // Voting status
         super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusReq = super._captureRequestId();
 
-        bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
+        bytes memory response = bytes(PROCESSED_STATUS_VOTING);
+
+        vm.expectEmit(true, true, true, true);
+        emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown);
+
+        gasBefore = gasleft();
+        super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status finished):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        // Finished status
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusReq = super._captureRequestId();
+
+        response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
@@ -430,6 +470,19 @@ contract FragBoxBettingTest is SimulateOracles {
         bytes32 statusId = super._captureRequestId();
 
         gasBefore = gasleft();
+        super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_READY), "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status ongoing):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusId = super._captureRequestId();
+
+        gasBefore = gasleft();
         super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_ONGOING), "");
         gasUsed = gasBefore - gasleft();
         console.log("fulfillRequest gas used (status ongoing):", gasUsed);
@@ -470,15 +523,32 @@ contract FragBoxBettingTest is SimulateOracles {
         console.log("fulfillRequest gas used (Roster update):", gasUsed);
         assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
-        vm.warp(block.timestamp + 6 minutes);
-
         vm.startPrank(fragBoxBetting.owner());
         super._startRequestCapture();
         fragBoxBetting.updateMatchStatus(MATCHID);
         bytes32 statusReq = super._captureRequestId();
         vm.stopPrank();
 
-        bytes memory response = bytes(PROCESSED_STATUS_FINISHED);
+        bytes memory response = bytes(PROCESSED_STATUS_READY);
+
+        vm.expectEmit(true, true, true, true);
+        emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Ready, FragBoxBetting.Faction.Unknown);
+
+        gasBefore = gasleft();
+        super._simulateFulfill(statusReq, response, "");
+        gasUsed = gasBefore - gasleft();
+        console.log("fulfillRequest gas used (status finished):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        vm.startPrank(fragBoxBetting.owner());
+        super._startRequestCapture();
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusReq = super._captureRequestId();
+        vm.stopPrank();
+
+        response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
         emit RequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
