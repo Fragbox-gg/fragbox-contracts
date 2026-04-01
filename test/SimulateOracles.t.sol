@@ -17,6 +17,7 @@ contract SimulateOracles is Test {
     string internal PROCESSED_ROSTER_READY_WINNING_PLAYER;
     string internal PROCESSED_ROSTER_READY_LOSING_PLAYER;
     string internal PROCESSED_STATUS_VOTING;
+    string internal PROCESSED_STATUS_READY;
     string internal PROCESSED_STATUS_ONGOING;
     string internal PROCESSED_STATUS_FINISHED;
     string internal PROCESSED_STATUS_FINISHED_DRAW;
@@ -35,6 +36,7 @@ contract SimulateOracles is Test {
             PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse("matchReady.json", WINNING_PLAYERID);
             PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse("matchReady.json", LOSING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
+            PROCESSED_STATUS_READY = _getProcessedResponse("matchReady.json", "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse("matchFinished.json", "");
             PROCESSED_STATUS_FINISHED_DRAW = _getProcessedResponse("matchFinishedDraw.json", "");
@@ -42,6 +44,7 @@ contract SimulateOracles is Test {
             PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
             PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse(MATCHID, LOSING_PLAYERID);
             PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
+            PROCESSED_STATUS_READY = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_FINISHED = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_FINISHED_DRAW = _getProcessedResponse(MATCHID, "");

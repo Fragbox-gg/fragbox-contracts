@@ -11,12 +11,14 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                   ERRORS                                   */
     /* -------------------------------------------------------------------------- */
     error FragBoxBetting__InvalidWallet();
+    error FragBoxBetting__MatchStatusIsInvalid();
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
@@ -51,7 +53,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         Voting,
         Ready,
         Ongoing,
-        Finished
+        Finished,
+        Invalid
     }
 
     enum RequestType {
@@ -329,7 +332,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (mb.matchStatus == MatchStatus.Finished) revert FragBoxBetting__MatchAlreadyFinished();
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate + STATUS_UPDATE_COOLDOWN) {
+        if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate) {
             revert FragBoxBetting__StatusUpdateTooSoon();
         }
 
@@ -383,15 +386,29 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                 return;
             }
 
-            MatchStatus matchStatus = MatchStatus(uint8(response[0]));
-            mb.matchStatus = matchStatus;
+            MatchStatus currentMatchStatus = mb.matchStatus;
+            MatchStatus newMatchStatus = MatchStatus(uint8(response[0]));
+
+            // EDGE-CASE PROTECTION:
+            // First status update must land on Unknown / Voting / Ready.
+            // Anything else means the match skipped the betting window → invalid + full refunds.
+            if (currentMatchStatus == MatchStatus.Unknown) {
+                if (newMatchStatus != MatchStatus.Unknown && newMatchStatus != MatchStatus.Voting && newMatchStatus != MatchStatus.Ready) {
+                    console.log("Setting match status to invalid");
+                    mb.matchStatus = MatchStatus.Invalid;
+                    emit RequestFulfilled(requestId, matchKey, MatchStatus.Invalid, Faction.Unknown);
+                    return;
+                }
+            }
+
+            mb.matchStatus = newMatchStatus;
 
             Faction winnerFaction = Faction(uint8(response[1]));
-            if (matchStatus == MatchStatus.Finished) {
+            if (newMatchStatus == MatchStatus.Finished) {
                 mb.winnerFaction = winnerFaction;
             }
 
-            emit RequestFulfilled(requestId, matchKey, matchStatus, winnerFaction);
+            emit RequestFulfilled(requestId, matchKey, newMatchStatus, winnerFaction);
         } else if (requestInfo.requestType == RequestType.Roster) {
             address requestor = requestInfo.wallet;
             uint256 betAmount = requestInfo.betAmount;
@@ -457,6 +474,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__MatchIsFinishedOrOngoing();
         }
 
+        if (mb.matchStatus == MatchStatus.Invalid) {
+            revert FragBoxBetting__MatchStatusIsInvalid();
+        }
+
         // This prevents match fixing by forcing players to register their wallet addresses beforehand
         bytes32 playerKey = _getKey(playerIdStr);
         if (playerIdToRegisteredWallet[playerKey] != msg.sender) {
@@ -506,20 +527,21 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.matchStatus != MatchStatus.Finished) revert FragBoxBetting__MatchNotFinished();
+        MatchStatus matchStatus = mb.matchStatus;
+        if (matchStatus != MatchStatus.Finished && matchStatus != MatchStatus.Invalid) revert FragBoxBetting__MatchNotFinished();
 
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
         if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
 
         Faction winnerFaction = mb.winnerFaction;
-        if (winnerFaction == Faction.Unknown) revert FragBoxBetting__WinnerUnknown();
+        if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) revert FragBoxBetting__WinnerUnknown();
         uint8 winnerFId = uint8(winnerFaction);
 
         uint256[4] storage winnerTotals = mb.factionTotals;
 
         // Draw or no winning bets -> full refund
-        if (winnerFaction == Faction.Draw || winnerTotals[winnerFId] == 0) {
+        if (winnerFaction == Faction.Draw || winnerTotals[winnerFId] == 0 || matchStatus == MatchStatus.Invalid) {
             playerToWinnings[msg.sender][playerKey] += betAmount;
             mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
             emit MatchClaimed(matchKey);
@@ -590,12 +612,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.matchStatus == MatchStatus.Finished) {
-            revert FragBoxBetting__MatchAlreadyFinished();
-        }
+        MatchStatus matchStatus = mb.matchStatus;
+        if (matchStatus != MatchStatus.Invalid) {
+            if (matchStatus == MatchStatus.Finished) {
+                revert FragBoxBetting__MatchAlreadyFinished();
+            }
 
-        if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
-            revert FragBoxBetting__TimeoutNotReached();
+            if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
+                revert FragBoxBetting__TimeoutNotReached();
+            }
         }
 
         bytes32 playerKey = _getKey(playerIdStr);
