@@ -556,18 +556,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             uint256 numerator = betAmount * 2 * minBet;
             payoutOrRefund = numerator / totalWinningBet;
 
-            // Dust sweep for this division
-            uint256 dust = numerator % totalWinningBet;
-            ownerFeesCollected += dust;
-
             // Refund excess when winning side overbet (symmetric to loser path)
             if (totalWinningBet > totalLosingBet) {
                 uint256 excess = totalWinningBet - minBet;
                 uint256 excessNumerator = betAmount * excess;
                 payoutOrRefund += excessNumerator / totalWinningBet;
-
-                uint256 excessDust = excessNumerator % totalWinningBet;
-                ownerFeesCollected += excessDust;
             }
         } else {
             // LOSER PATH: only get excess refund if losing faction overbet
@@ -578,10 +571,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             uint256 excess = totalLosingBet - minBet;
             uint256 numerator = betAmount * excess;
             payoutOrRefund = numerator / totalLosingBet;
-
-            // Dust sweep for this division
-            uint256 dust = numerator % totalLosingBet;
-            ownerFeesCollected += dust;
         }
 
         if (payoutOrRefund > 0) {
@@ -698,6 +687,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
+     * @return The address of the chainlink functions router contract
+     */
+    function getChainlinkFunctionsRouter() external view returns (address) {
+        return I_CHAINLINKFUNCTIONSROUTER;
+    }
+
+    /**
      * Converts the match id string into a bytes object for gas savings
      * @param matchIdStr The match id string to convert
      * @return The match key
@@ -745,7 +741,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Gets the amount of owner fees accumulated that hasn't been withdrawn yet
      * @return The amount in wei
      */
-    function getOwnerFees() external view onlyOwner returns (uint256) {
+    function getOwnerFeesCollected() external view onlyOwner returns (uint256) {
         return ownerFeesCollected;
     }
 

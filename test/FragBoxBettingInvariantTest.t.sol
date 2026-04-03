@@ -11,6 +11,8 @@ contract FragBoxBettingInvariantTest is Test {
     FragBoxHandler public handler;
 
     string constant MATCH_ID = "1-a536dd90-4df3-42df-be6e-d158177fdef2";
+    string constant PLAYER_WIN = "94f98244-169d-478a-a5dd-21dde2e649ca";
+    string constant PLAYER_LOSE = "92f1450e-182b-41db-8f31-53079df20c73";
 
     function setUp() public {
         DeployFragBoxBetting deployer = new DeployFragBoxBetting();
@@ -32,36 +34,32 @@ contract FragBoxBettingInvariantTest is Test {
         assertTrue(handler.ghost_totalDeposited() >= 0);
     }
 
-    function invariant_emergencyRefundOnlyAfterTrueTimeout() public {
-        // after deposit, lastStatusUpdate must be > 0
-        // emergencyRefund must revert if < 24h from lastStatusUpdate
-    }
-
-    function invariant_contractBalanceConsistency() public {
-        // total ETH in contract == sum(all factionTotals) + sum(flight funds) + sum(playerToWinnings) + ownerFeesCollected
-        // (modulo any withdrawn owner fees)
-    }
-
-    // Add these invariants (they run after every handler call)
     function invariant_totalEthConservation() public view {
-        uint256 contractBal = address(fragBoxBetting).balance;
-        uint256 totalInFlight = handler.ghost_totalInFlight(); // add ghost to handler
-        uint256 totalWinnings = 0; // sum playerToWinnings across actors (or expose view)
-        uint256 ownerFees = fragBoxBetting.getOwnerFees();
+        uint256 totalWithdrawn = handler.ghost_totalWithdrawnUsers() + handler.ghost_totalWithdrawnOwner();
 
-        // Rough but powerful: contract ETH should equal in-flight + winnings + fees + factionTotals
-        assertEq(contractBal, totalInFlight + totalWinnings + ownerFees + handler.ghost_factionTotalsSum());
+        assertEq(
+            address(fragBoxBetting).balance + totalWithdrawn,
+            handler.ghost_totalInput(),
+            "ETH conservation violated: total input != contract balance + all withdrawals"
+        );
     }
 
-    function invariant_noDoubleClaim() public {
-        // after claim or emergencyRefund, betAmount == 0 and cannot claim again
+    function invariant_noDoubleClaimOrRefund() public view {
+        // handler tracks claimed/refunded actors — assert they cannot claim twice
+        assertTrue(handler.ghost_noDoubleClaim());
     }
 
-    function invariant_cooldownsPreventSpam() public {
-        // status/roster requests respect cooldowns (use handler timestamps)
+    function invariant_cooldownsPreventSpam() public view {
+        assertTrue(handler.ghost_statusCooldownRespected());
+        assertTrue(handler.ghost_rosterCooldownRespected());
     }
 
-    function invariant_emergencyOnlyAfterTimeout() public {
-        // emergencyRefund reverts unless >=24h from lastStatusUpdate
+    function invariant_emergencyOnlyAfterTimeout() public view {
+        assertTrue(handler.ghost_emergencyOnlyAfter24h());
+    }
+
+    function invariant_noBetOnOppositeFaction() public view {
+        // Roster validation already prevents it — invariant just sanity checks factionTotals
+        assertTrue(handler.ghost_factionTotalsNeverNegative());
     }
 }

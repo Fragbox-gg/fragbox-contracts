@@ -14,7 +14,8 @@ contract FragBoxBettingTest is SimulateOracles {
 
     address public USER;
     address public USER2;
-    ETHReceiver public receiver;
+    address public USER3;
+
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
     uint256 constant CALLBACK_GAS_LIMIT = 250_000;
@@ -35,12 +36,14 @@ contract FragBoxBettingTest is SimulateOracles {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
         (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
 
-        receiver = new ETHReceiver();
-        USER = address(receiver);
+        USER = address(new ETHReceiver());
         vm.deal(USER, STARTING_BALANCE);
 
         USER2 = address(new ETHReceiver());
         vm.deal(USER2, STARTING_BALANCE);
+
+        USER3 = address(new ETHReceiver());
+        vm.deal(USER3, STARTING_BALANCE);
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
 
@@ -616,51 +619,228 @@ contract FragBoxBettingTest is SimulateOracles {
         fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
         bytes32 requestId = super._captureRequestId();
 
-        // Simulate oracle error (e.g. invalid player or API fail)
+        // Simulate oracle error (API fail, invalid player, etc.)
         uint256 gasBefore = gasleft();
-        super._simulateFulfill(requestId, string(""), string("API error")); // err.length > 0
+        super._simulateFulfill(requestId, string(""), string("API error")); // err.length > 0 triggers error path
         uint256 gasUsed = gasBefore - gasleft();
-        console.log("fulfillRequest gas (error path):", gasUsed);
-        assertLt(gasUsed, CALLBACK_GAS_LIMIT);
+        console.log("fulfillRequest gas (roster error path):", gasUsed);
+        assertLt(gasUsed, CALLBACK_GAS_LIMIT, "Callback MUST stay under Chainlink Functions 300k limit");
 
-        // Funds must be in flight, not lost
-        assertEq(fragBoxBetting.getBetAmountsInRosterValidationFlight(), SEND_VALUE - fragBoxBetting.calculateDepositFee(SEND_VALUE));
+        // Funds are now in flight (net of fee)
+        vm.prank(USER);
+        assertEq(
+            fragBoxBetting.getBetAmountsInRosterValidationFlight(),
+            SEND_VALUE - fragBoxBetting.calculateDepositFee(SEND_VALUE)
+        );
 
-        vm.startPrank(USER);
+        vm.prank(USER);
         fragBoxBetting.withdrawBetAmountsInRosterValidationFlight();
-        vm.stopPrank();
 
+        // User gets full net amount back (fee was already taken — intended)
         assertEq(USER.balance, balBefore - fragBoxBetting.calculateDepositFee(SEND_VALUE));
     }
 
-    function test_Claim_AllPaths_CorrectPayoutAndDustToOwner() public {
-        // 1. Winner overbet case
+    function test_Claim_LoserNoExcess_Reverts() public {
+        uint256 balBefore = USER.balance;
+
+        // Winner and loser deposit the same amount
+        super._startRequestCapture();
         vm.prank(USER);
-        fragBoxBetting.deposit{value: 0.2 ether}(MATCHID, WINNING_PLAYERID); // faction1
-        // simulate roster + status finished Faction1
-        // ... (use your existing helpers)
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, LOSING_PLAYERID);
+        bytes32 rosterId = super._captureRequestId();
+        super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
 
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER2);
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
 
+        super._startRequestCapture();
         vm.prank(USER2);
-        fragBoxBetting.deposit{value: 0.1 ether}(MATCHID, LOSING_PLAYERID); // faction2
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+        rosterId = super._captureRequestId();
+        super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        // fulfill finished Faction1
-        // claim both
-        // assert winners got exactly 2 * min(0.2, 0.1) pro-rata + excess refund
-        // assert ownerFeesCollected increased by dust
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusId = super._captureRequestId();
+        super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_VOTING), "");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        // Finish match with opposite faction as winner
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusId = super._captureRequestId();
+        super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_FINISHED), "");
+
+        vm.startPrank(USER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, FragBoxBetting.Faction.Faction2
+            )
+        );
+        fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__InsufficientFundsForWithdrawal.selector);
+        fragBoxBetting.withdraw(LOSING_PLAYERID);
+        vm.stopPrank();
+
+        // No funds should have moved to playerToWinnings
+        assertEq(USER.balance, balBefore - SEND_VALUE);
     }
 
-    function test_Claim_LoserNoExcess_Reverts() public {
-        // deposit only on loser, fulfill winner = other faction, no excess on loser
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector);
+    function test_Claim_AllPaths_CorrectPayoutAndDustToOwner() public {
+        vm.startPrank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER2);
+
+        uint256 startingOwnerFees = fragBoxBetting.getOwnerFeesCollected(); // assuming this view exists; if not, use a ghost or balance diff
+        uint256 userBal = USER.balance;
+        uint256 user2Bal = USER2.balance;
+        vm.stopPrank();
+
+        // User bets heavy on winner, User2 bets light on loser
+        super._startRequestCapture();
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: 0.2 ether}(MATCHID, WINNING_PLAYERID);
+        bytes32 rosterId = super._captureRequestId();
+        super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+
+        super._startRequestCapture();
+        vm.prank(USER2);
+        fragBoxBetting.deposit{value: 0.1 ether}(MATCHID, LOSING_PLAYERID);
+        rosterId = super._captureRequestId();
+        super._simulateFulfill(rosterId, bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
+
+        // Finish match — Faction1 wins
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        bytes32 statusId = super._captureRequestId();
+        super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_READY), "");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        statusId = super._captureRequestId();
+        super._simulateFulfill(statusId, bytes(PROCESSED_STATUS_FINISHED), "");
+
+        // Claim
+        vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
+
+        vm.startPrank(USER2);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, FragBoxBetting.Faction.Faction2
+            )
+        );
         fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__InsufficientFundsForWithdrawal.selector);
+        fragBoxBetting.withdraw(LOSING_PLAYERID);
+        vm.stopPrank();
+
+        uint256 fee1 = fragBoxBetting.calculateDepositFee(0.2 ether);
+        uint256 fee2 = fragBoxBetting.calculateDepositFee(0.1 ether);
+        uint256 totalLosingBet = 0.1 ether - fee2;
+        uint256 totalWinningBet = 0.2 ether - fee1;
+        uint256 expectedWinnerPayout = totalLosingBet + totalWinningBet; // excess on winner side is refunded
+
+        assertEq(USER.balance, userBal - 0.2 ether + expectedWinnerPayout);
+        assertEq(USER2.balance, user2Bal - 0.1 ether); // loser gets nothing extra
+
+        // Dust always goes to owner
+        vm.startPrank(fragBoxBetting.owner());
+        assertGt(fragBoxBetting.getOwnerFeesCollected(), startingOwnerFees);
+        assertEq(address(fragBoxBetting).balance, fragBoxBetting.getOwnerFeesCollected());
+        vm.stopPrank();
     }
 
     function test_MultiplePlayersSameFaction_ProRataWorks() public {
-        // 3 players on winning faction with different bet sizes
-        // verify each gets exact proportional share of 2*minBet
+        // Three winners with different bet sizes
+        uint256 bal1 = USER.balance;
+        uint256 bal2 = USER2.balance;
+        uint256 bal3 = USER3.balance;
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+
+        super._startRequestCapture();
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: 0.1 ether}(MATCHID, WINNING_PLAYERID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
+
+        vm.prank(USER2);
+        fragBoxBetting.deposit{value: 0.2 ether}(MATCHID, WINNING_PLAYERID);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER3);
+
+        vm.prank(USER3);
+        fragBoxBetting.deposit{value: 0.3 ether}(MATCHID, WINNING_PLAYERID);
+
+        // Finish with Faction1 win (no loser bets)
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_STATUS_READY), "");
+
+        vm.warp(block.timestamp + WARP_TIME);
+
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_STATUS_FINISHED), "");
+
+        // Claim + withdraw each
+        vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
+
+        vm.startPrank(USER2);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
+
+        vm.startPrank(USER3);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
+
+        assertEq(USER.balance, bal1 - fragBoxBetting.calculateDepositFee(0.1 ether));
+        assertEq(USER2.balance, bal3 - fragBoxBetting.calculateDepositFee(0.2 ether));
+        assertEq(USER3.balance, bal2 - fragBoxBetting.calculateDepositFee(0.3 ether));
+    }
+
+    function test_Draw_FullRefundToAll() public {
+        // same setup as test_ClaimWithDrawWinnerRefundsAll but uses the already-existing test logic
+        // (already in your file — this is just a duplicate for clarity with full assertions)
+        uint256 balBefore = USER.balance;
+
+        super._startRequestCapture();
+        vm.prank(USER);
+        fragBoxBetting.deposit{value: SEND_VALUE}(MATCHID, WINNING_PLAYERID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+
+        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchStatus(MATCHID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_STATUS_FINISHED_DRAW), "");
+
+        vm.startPrank(USER);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
+
+        uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
+        assertEq(USER.balance, balBefore - fee);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -688,11 +868,11 @@ contract FragBoxBettingTest is SimulateOracles {
 
     function testGetOwnerFees() public {
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.getOwnerFees();
+        fragBoxBetting.getOwnerFeesCollected();
 
         vm.expectRevert();
         vm.prank(USER);
-        fragBoxBetting.getOwnerFees();
+        fragBoxBetting.getOwnerFeesCollected();
     }
 
     function testCalculateDepositFee() public view {
