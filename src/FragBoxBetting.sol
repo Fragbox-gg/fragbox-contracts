@@ -11,7 +11,6 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
@@ -514,7 +513,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param matchIdStr Match id to check
      */
     function claim(string calldata matchIdStr, string calldata playerIdStr) external nonReentrant whenNotPaused {
-        console.log("    Claiming", playerIdStr);
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -526,7 +524,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
         if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
-        console.log(betAmount, "bet amount");
 
         Faction winnerFaction = mb.winnerFaction;
         if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) {
@@ -573,12 +570,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             // excess on losing side is refunded pro-rata
             uint256 excess = totalLosingBet - minBet;
             payoutOrRefund = Math.mulDiv(betAmount, excess, totalLosingBet, Math.Rounding.Ceil);
-            console.log(excess, "losing excess");
-            console.log(totalLosingBet, "total losing bet");
-            console.log(payoutOrRefund, "losing payout or refund");
         }
 
-        console.log("adding to winnings", payoutOrRefund);
         playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
         mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
 
