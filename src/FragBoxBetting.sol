@@ -99,20 +99,27 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                   EVENTS                                   */
     /* -------------------------------------------------------------------------- */
-    event BetPlaced(bytes32 indexed matchKey, address indexed better, uint256 amount, string playerId);
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
-    event RequestFulfilled(
-        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
-    );
+    event BetPlaced(bytes32 indexed matchKey, string matchId, address indexed better, uint256 amount, string playerId);
+    event RosterUpdated(bytes32 indexed matchKey, bytes32 indexed playerKey, Faction playerFaction);
+    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
+    event RequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction);
     event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
-    event EmergencyRefund(bytes32 indexed matchKey);
-    event MatchClaimed(bytes32 indexed matchKey);
-    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
-    event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
+    event MatchClaimed(bytes32 indexed matchKey, string matchId, address indexed claimer, string playerId, uint256 amountClaimed, bool isRefund);
+    event EmergencyRefund(bytes32 indexed matchKey, string matchId, address indexed claimer, string playerId, uint256 amountRefunded);
+    event WinningsWithdrawn(bytes32 indexed playerKey, string playerId, address indexed wallet, uint256 amount);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
+    /* ------------------------- Admin / Config Changes ------------------------- */
+    event EmergencyRefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
+    event InFlightWithdrawalTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
+    event HouseFeePercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
+    event MinStatusUpdateFeeUsdUpdated(uint256 oldFee, uint256 newFee);
+    event MinBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
+    event MaxBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
+    event StatusUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
+    event RosterUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event DonSecretsUpdated();
-    event OwnerFeesWithdrawn(uint256 amountWithdrawn);
-    event InFlightFundsWithdrawn(uint256 amountWithdrawn);
+    event OwnerFeesWithdrawn(address indexed wallet, uint256 amountWithdrawn);
+    event InFlightFundsWithdrawn(address indexed wallet, uint256 amountWithdrawn);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
@@ -281,7 +288,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             betAmount: betAmount,
             wallet: msg.sender
         });
-        emit RequestSent(requestId, matchKey);
+        emit RequestSent(requestId, matchKey, matchIdStr);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -348,7 +355,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         requestIdToInfo[requestId] = RequestInfo({
             requestType: RequestType.Status, matchKey: matchKey, playerKey: bytes32(0), betAmount: 0, wallet: msg.sender
         });
-        emit RequestSent(requestId, matchKey);
+        emit RequestSent(requestId, matchKey, matchIdStr);
     }
 
     /**
@@ -505,7 +512,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             mb.factionTotals[uint8(faction)] += betAmount;
         }
 
-        emit BetPlaced(matchKey, msg.sender, betAmount, playerIdStr);
+        emit BetPlaced(matchKey, matchIdStr, msg.sender, betAmount, playerIdStr);
     }
 
     /**
@@ -546,7 +553,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (winnerFaction == Faction.Draw || winnerTotals[winnerFId] == 0 || matchStatus == MatchStatus.Invalid) {
             playerToWinnings[msg.sender][playerKey] += betAmount;
             mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
-            emit MatchClaimed(matchKey);
+            emit MatchClaimed(matchKey, matchIdStr, msg.sender, playerIdStr, betAmount, true);
             return;
         }
 
@@ -584,7 +591,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
         mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
 
-        emit MatchClaimed(matchKey);
+        emit MatchClaimed(matchKey, matchIdStr, msg.sender, playerIdStr, payoutOrRefund, false);
     }
 
     /**
@@ -617,7 +624,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         playerToWinnings[msg.sender][playerKey] += betAmount;
         mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
 
-        emit EmergencyRefund(matchKey);
+        emit EmergencyRefund(matchKey, matchIdStr, msg.sender, playerIdStr, betAmount);
     }
 
     /**
@@ -634,7 +641,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(msg.sender), winningsAmount);
         playerToWinnings[msg.sender][playerKey] -= winningsAmount;
-        emit WinningsWithdrawn(playerId, msg.sender, winningsAmount);
+        emit WinningsWithdrawn(playerKey, playerId, msg.sender, winningsAmount);
     }
 
     /**
@@ -644,7 +651,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 amount = ownerFeesCollected;
         Address.sendValue(payable(owner()), amount);
         ownerFeesCollected = 0;
-        emit OwnerFeesWithdrawn(amount);
+        emit OwnerFeesWithdrawn(owner(), amount);
     }
 
     /**
@@ -664,7 +671,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(msg.sender), withdrawalAmount);
         betAmountsInRosterValidationFlight[msg.sender] -= withdrawalAmount;
-        emit InFlightFundsWithdrawn(withdrawalAmount);
+        emit InFlightFundsWithdrawn(msg.sender, withdrawalAmount);
     }
 
     /**
@@ -686,7 +693,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(withdrawalAddress), withdrawalAmount);
         betAmountsInRosterValidationFlight[withdrawalAddress] -= withdrawalAmount;
-        emit InFlightFundsWithdrawn(withdrawalAmount);
+        emit InFlightFundsWithdrawn(withdrawalAddress, withdrawalAmount);
     }
 
     /* -------------------------------- PAUSABLE -------------------------------- */
@@ -706,6 +713,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newEmergencyRefundTimeout The new timeout in seconds
      */
     function setEmergencyRefundTimeout(uint256 newEmergencyRefundTimeout) external onlyOwner {
+        emit EmergencyRefundTimeoutUpdated(emergencyRefundTimeout, newEmergencyRefundTimeout);
         emergencyRefundTimeout = newEmergencyRefundTimeout;
     }
 
@@ -714,6 +722,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newInFlightWithdrawalTimeout The new timeout in seconds
      */
     function setInFlightWithdrawalTimeout(uint256 newInFlightWithdrawalTimeout) external onlyOwner {
+        emit InFlightWithdrawalTimeoutUpdated(inFlightWithdrawalTimeout, newInFlightWithdrawalTimeout);
         inFlightWithdrawalTimeout = newInFlightWithdrawalTimeout;
     }
 
@@ -722,6 +731,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newHouseFeePercentage The new house fee percentage
      */
     function setHouseFeePercentage(uint256 newHouseFeePercentage) external onlyOwner {
+        emit HouseFeePercentageUpdated(houseFeePercentage, newHouseFeePercentage);
         houseFeePercentage = newHouseFeePercentage;
     }
 
@@ -730,6 +740,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newMinStatusUpdateFeeUsd The new min fee in USD wei
      */
     function setMinStatusUpdateFeeUsd(uint256 newMinStatusUpdateFeeUsd) external onlyOwner {
+        emit MinStatusUpdateFeeUsdUpdated(minStatusUpdateFeeUsd, newMinStatusUpdateFeeUsd);
         minStatusUpdateFeeUsd = newMinStatusUpdateFeeUsd;
     }
 
@@ -741,6 +752,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (newMinBetAmountUsd >= maxBetAmountUsd) {
             revert FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount();
         }
+        emit MinBetAmountUsdUpdated(minBetAmountUsd, newMinBetAmountUsd);
         minBetAmountUsd = newMinBetAmountUsd;
     }
 
@@ -752,6 +764,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (newMaxBetAmountUsd <= minBetAmountUsd) {
             revert FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount();
         }
+        emit MaxBetAmountUsdUpdated(maxBetAmountUsd, newMaxBetAmountUsd);
         maxBetAmountUsd = newMaxBetAmountUsd;
     }
 
@@ -760,6 +773,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newStatusUpdateCooldown The cooldown period in seconds
      */
     function setStatusUpdateCooldown(uint256 newStatusUpdateCooldown) external onlyOwner {
+        emit StatusUpdateCooldownUpdated(statusUpdateCooldown, newStatusUpdateCooldown);
         statusUpdateCooldown = newStatusUpdateCooldown;
     }
 
@@ -768,6 +782,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param newRosterUpdateCooldown The cooldown period in seconds
      */
     function setRosterUpdateCooldown(uint256 newRosterUpdateCooldown) external onlyOwner {
+        emit RosterUpdateCooldownUpdated(rosterUpdateCooldown, newRosterUpdateCooldown);
         rosterUpdateCooldown = newRosterUpdateCooldown;
     }
 
