@@ -651,7 +651,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         Address.sendValue(payable(msg.sender), winningsAmount);
-        playerToWinnings[msg.sender][playerKey] -= winningsAmount;
+        playerToWinnings[msg.sender][playerKey] = 0;
         emit WinningsWithdrawn(playerKey, playerId, msg.sender, winningsAmount);
     }
 
@@ -681,7 +681,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         Address.sendValue(payable(msg.sender), withdrawalAmount);
-        betAmountsInRosterValidationFlight[msg.sender] -= withdrawalAmount;
+        betAmountsInRosterValidationFlight[msg.sender] = 0;
         emit InFlightFundsWithdrawn(msg.sender, withdrawalAmount);
     }
 
