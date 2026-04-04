@@ -615,8 +615,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Allows a player to withdraw their winnings from the contract
      * @param playerId The player id the sender wallet is associated with
      */
-    function withdraw(string memory playerId) external nonReentrant whenNotPaused {
-        bytes32 playerKey = getKey(playerId);
+    function withdraw(string calldata playerId) external nonReentrant whenNotPaused {
+        bytes32 playerKey = _getKey(playerId);
 
         uint256 winningsAmount = playerToWinnings[msg.sender][playerKey];
         if (winningsAmount <= 0) {
@@ -650,6 +650,22 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(msg.sender), withdrawalAmount);
         betAmountsInRosterValidationFlight[msg.sender] -= withdrawalAmount;
+    }
+
+    /**
+     * Allows the owner to withdraw funds from the contract when they are in flight (chainlink functions) for roster validation back to the original user
+     * This phase occurs right after a user deposits (bets) for the first time on any match
+     * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
+     * @param withdrawalAddress The user who originally deposited
+     */
+    function withdrawBetAmountsInRosterValidationFlight(address withdrawalAddress) external nonReentrant whenNotPaused onlyOwner {
+        uint256 withdrawalAmount = betAmountsInRosterValidationFlight[withdrawalAddress];
+        if (withdrawalAmount <= 0) {
+            revert FragBoxBetting__InsufficientFundsForWithdrawal();
+        }
+
+        Address.sendValue(payable(withdrawalAddress), withdrawalAmount);
+        betAmountsInRosterValidationFlight[withdrawalAddress] -= withdrawalAmount;
     }
 
     /* -------------------------------- PAUSABLE -------------------------------- */
