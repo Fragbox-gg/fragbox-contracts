@@ -658,7 +658,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
      * @param withdrawalAddress The user who originally deposited
      */
-    function withdrawBetAmountsInRosterValidationFlight(address withdrawalAddress) external nonReentrant whenNotPaused onlyOwner {
+    function withdrawBetAmountsInRosterValidationFlight(address withdrawalAddress)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyOwner
+    {
         uint256 withdrawalAmount = betAmountsInRosterValidationFlight[withdrawalAddress];
         if (withdrawalAmount <= 0) {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
