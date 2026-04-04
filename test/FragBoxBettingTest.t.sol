@@ -23,7 +23,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
-    event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, FragBoxBetting.Faction playerFaction);
+    event RosterUpdated(bytes32 indexed matchKey, bytes32 indexed playerKey, FragBoxBetting.Faction playerFaction);
     event RequestFulfilled(
         bytes32 indexed requestId,
         bytes32 indexed matchKey,
@@ -51,150 +51,6 @@ contract FragBoxBettingTest is SimulateOracles {
         fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
         fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
         vm.stopPrank();
-    }
-
-    /* -------------------------------------------------------------------------- */
-    /*                            INTERNAL TEST HELPERS                           */
-    /* -------------------------------------------------------------------------- */
-    enum EventLogLevel {
-        None, // 0 - Log nothing
-        NamesOnly, // 1 - Just event names
-        WithIndexed, // 2 - Event names + indexed parameters
-        Full // 3 - Everything (default)
-    }
-
-    /// @notice Change this constant to set default verbosity for all tests
-    EventLogLevel internal constant LOG_LEVEL = EventLogLevel.NamesOnly;
-
-    /// @notice Uses the global LOG_LEVEL constant
-    function printDecodedEvents() internal view {
-        printDecodedEvents(LOG_LEVEL);
-    }
-
-    /// @notice Override level for a single call
-    function printDecodedEvents(EventLogLevel level) internal view {
-        if (level == EventLogLevel.None) return;
-
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-
-        console.log("\n=== DECODED EVENTS ===");
-        console.log("Total events:", logs.length, "- Level:", uint8(level));
-
-        if (logs.length == 0) {
-            console.log("(No events emitted)");
-            return;
-        }
-
-        for (uint256 i = 0; i < logs.length; ++i) {
-            Vm.Log memory log = logs[i];
-            bytes32 sig = log.topics[0];
-
-            console.log("\n--- Event #", i, "---");
-            if (level > EventLogLevel.NamesOnly) {
-                console.log("Emitter:", log.emitter);
-            }
-
-            if (sig == BET_PLACED_SIG) _printBetPlaced(log, level);
-            else if (sig == REQUEST_FULFILLED_SIG) _printRequestFulfilled(log, level);
-            else if (sig == EMERGENCY_REFUND_SIG) _printEmergencyRefund(log, level);
-            else if (sig == MATCH_CLAIMED_SIG) _printMatchClaimed(log, level);
-            else if (sig == ROSTER_UPDATED_SIG) _printRosterUpdated(log, level);
-            else _printUnknownEvent(log, level);
-        }
-    }
-
-    /* ----------------------------- TOPIC DECODERS ----------------------------- */
-    function topicToAddress(bytes32 topic) internal pure returns (address) {
-        return address(uint160(uint256(topic)));
-    }
-
-    function topicToUint256(bytes32 topic) internal pure returns (uint256) {
-        return uint256(topic);
-    }
-
-    function topicToBytes32(bytes32 topic) internal pure returns (bytes32) {
-        return topic;
-    }
-
-    /* -------------------------- YOUR EVENT SIGNATURES ------------------------- */
-    bytes32 internal constant BET_PLACED_SIG = keccak256("BetPlaced(bytes32,address,uint256,string)");
-    bytes32 internal constant REQUEST_FULFILLED_SIG = keccak256("RequestFulfilled(bytes32,bytes32,string,string)");
-    bytes32 internal constant EMERGENCY_REFUND_SIG = keccak256("EmergencyRefund(bytes32)");
-    bytes32 internal constant MATCH_CLAIMED_SIG = keccak256("MatchClaimed(bytes32)");
-    bytes32 internal constant ROSTER_UPDATED_SIG = keccak256("RosterUpdated(bytes32,string,uint8)");
-
-    /* ----------------------------- EVENT DECODERS ----------------------------- */
-    function _printBetPlaced(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> BetPlaced");
-        if (level == EventLogLevel.NamesOnly) return;
-
-        console.log("  MatchKey :");
-        console.logBytes32(log.topics[1]);
-        console.log("  Better   :", topicToAddress(log.topics[2]));
-
-        if (level == EventLogLevel.WithIndexed) return;
-
-        (uint256 amount, uint8 faction, string memory playerId) = abi.decode(log.data, (uint256, uint8, string));
-        console.log("  Amount   :", amount);
-        console.log("  Faction  :", faction);
-        console.log("  PlayerId :", playerId);
-    }
-
-    function _printRequestFulfilled(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> RequestFulfilled");
-        if (level == EventLogLevel.NamesOnly) return;
-
-        console.log("  RequestId:");
-        console.logBytes32(log.topics[1]);
-        console.log("  MatchKey :");
-        console.logBytes32(log.topics[2]);
-
-        if (level == EventLogLevel.WithIndexed) return;
-
-        (string memory status, string memory winnerFaction) = abi.decode(log.data, (string, string));
-        console.log("  Status        :", status);
-        console.log("  WinnerFaction :", winnerFaction);
-    }
-
-    function _printEmergencyRefund(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> EmergencyRefund");
-        if (level == EventLogLevel.NamesOnly) return;
-        console.log("  MatchKey :");
-        console.logBytes32(log.topics[1]);
-    }
-
-    function _printMatchClaimed(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> MatchClaimed");
-        if (level == EventLogLevel.NamesOnly) return;
-        console.log("  MatchKey :");
-        console.logBytes32(log.topics[1]);
-    }
-
-    function _printRosterUpdated(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> RosterUpdated");
-        if (level == EventLogLevel.NamesOnly) return;
-
-        console.log("  MatchKey    :");
-        console.logBytes32(log.topics[1]);
-
-        if (level == EventLogLevel.WithIndexed) return;
-
-        uint256 playerCount = abi.decode(log.data, (uint256));
-        console.log("  PlayerCount :", playerCount);
-    }
-
-    function _printUnknownEvent(Vm.Log memory log, EventLogLevel level) private pure {
-        console.log("-> Unknown Event");
-        if (level == EventLogLevel.NamesOnly) return;
-
-        for (uint256 j = 1; j < log.topics.length; ++j) {
-            console.log("  Topic", j, ":");
-            console.logBytes32(log.topics[j]);
-        }
-        if (level == EventLogLevel.Full && log.data.length > 0) {
-            console.log("  Data (raw):");
-            console.logBytes(log.data);
-        }
     }
 
     /* -------------------------------------------------------------------------- */
@@ -633,6 +489,8 @@ contract FragBoxBettingTest is SimulateOracles {
             SEND_VALUE - fragBoxBetting.calculateDepositFee(SEND_VALUE)
         );
 
+        vm.warp(block.timestamp + 1 hours + 1 minutes);
+
         vm.prank(USER);
         fragBoxBetting.withdrawBetAmountsInRosterValidationFlight();
 
@@ -854,7 +712,7 @@ contract FragBoxBettingTest is SimulateOracles {
         assertEq(uint256(fragBoxBetting.getEthUsdPrice()), fragBoxBetting.getUsdValueOfEth(1e18));
     }
 
-    function testgetKey() public view {
+    function testGetKey() public view {
         fragBoxBetting.getKey(MATCHID);
     }
 
@@ -877,18 +735,31 @@ contract FragBoxBettingTest is SimulateOracles {
 
     function testCalculateDepositFee() public view {
         uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
-        assertEq(
-            SEND_VALUE - fee,
-            SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / fragBoxBetting.getPercentageBase()
-        );
+        assertEq(SEND_VALUE - fee, SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / 100);
     }
 
-    function testGetMinBetAmountInUsd() public view {
-        fragBoxBetting.getMinBetAmountInUsd();
+    function testGetMinBetAmountInUsd() public {
+        fragBoxBetting.getMinBetAmountUsd();
+
+        vm.prank(fragBoxBetting.owner());
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount.selector);
+        fragBoxBetting.setMinBetAmountUsd(5000 ether);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.setMinBetAmountUsd(5 ether);
+        assertEq(fragBoxBetting.getMinBetAmountUsd(), 5 ether);
     }
 
-    function testGetMaxBetAmountInUsd() public view {
-        fragBoxBetting.getMaxBetAmountInUsd();
+    function testGetMaxBetAmountInUsd() public {
+        fragBoxBetting.getMaxBetAmountUsd();
+
+        vm.prank(fragBoxBetting.owner());
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount.selector);
+        fragBoxBetting.setMaxBetAmountUsd(2 ether);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.setMaxBetAmountUsd(5000 ether);
+        assertEq(fragBoxBetting.getMaxBetAmountUsd(), 5000 ether);
     }
 
     function testGetPaused() public {
