@@ -25,7 +25,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__BetTooSmall();
     error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
-    error FragBoxBetting__MatchIsFinishedOrOngoing();
+    error FragBoxBetting__MatchIsOngoing();
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
@@ -485,8 +485,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__MatchAlreadyFinished();
         }
 
-        if (mb.matchStatus == MatchStatus.Ongoing || mb.matchStatus == MatchStatus.Finished) {
-            revert FragBoxBetting__MatchIsFinishedOrOngoing();
+        if (mb.matchStatus == MatchStatus.Ongoing) {
+            revert FragBoxBetting__MatchIsOngoing();
         }
 
         if (mb.matchStatus == MatchStatus.Invalid) {
@@ -651,7 +651,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         Address.sendValue(payable(msg.sender), winningsAmount);
-        playerToWinnings[msg.sender][playerKey] -= winningsAmount;
+        playerToWinnings[msg.sender][playerKey] = 0;
         emit WinningsWithdrawn(playerKey, playerId, msg.sender, winningsAmount);
     }
 
@@ -681,7 +681,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         Address.sendValue(payable(msg.sender), withdrawalAmount);
-        betAmountsInRosterValidationFlight[msg.sender] -= withdrawalAmount;
+        betAmountsInRosterValidationFlight[msg.sender] = 0;
         emit InFlightFundsWithdrawn(msg.sender, withdrawalAmount);
     }
 
