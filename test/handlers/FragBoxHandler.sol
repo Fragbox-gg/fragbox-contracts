@@ -6,6 +6,7 @@ import {CommonBase} from "forge-std/Base.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {FragBoxBetting} from "../../src/FragBoxBetting.sol";
 import {SimulateOracles} from "../SimulateOracles.t.sol";
+import {ETHReceiver} from "test/mocks/ETHReceiver.sol";
 
 contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     FragBoxBetting public betting;
@@ -18,11 +19,10 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     string[3] public factions = ["faction1", "faction2", "draw"];
 
     /* ----------------------------- GHOST VARIABLES ---------------------------- */
-    uint256 public ghost_totalInput; // ALL ETH that ever entered the contract
+    uint256 public ghost_totalDeposited; // ALL ETH that ever entered the contract
     uint256 public ghost_totalWithdrawnUsers; // winnings + in-flight withdrawals
     uint256 public ghost_totalWithdrawnOwner; // ownerFees withdrawals
 
-    uint256 public ghost_totalDeposited;
     uint256 public ghost_totalInFlight; // betAmountsInRosterValidationFlight
 
     mapping(address => bool) public hasClaimedOrRefunded;
@@ -34,10 +34,10 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         setUpSimulation(betting.getChainlinkFunctionsRouter(), _betting);
 
-        actors.push(makeAddr("alice"));
-        actors.push(makeAddr("bob"));
-        actors.push(makeAddr("charlie"));
-        actors.push(makeAddr("dave"));
+        actors.push(address(new ETHReceiver()));
+        actors.push(address(new ETHReceiver()));
+        actors.push(address(new ETHReceiver()));
+        actors.push(address(new ETHReceiver()));
 
         // Fund actors
         for (uint256 i = 0; i < actors.length; i++) {
@@ -83,7 +83,6 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         // Update ghosts on deposit
         ghost_totalDeposited += amount;
-        ghost_totalInput += amount;
         if (needsRoster) {
             ghost_totalInFlight += net;
         }
@@ -100,6 +99,14 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
             // Funds move from in-flight → faction totals
             ghost_totalInFlight -= net;
+        } else if (needsRoster) {
+            uint256 balanceBefore = actor.balance;
+
+            vm.prank(actor);
+            betting.withdrawBetAmountsInRosterValidationFlight();
+
+            console.log("withdrew", (actor.balance - balanceBefore));
+            ghost_totalWithdrawnUsers += (actor.balance - balanceBefore);
         }
     }
 
