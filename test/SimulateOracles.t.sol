@@ -51,7 +51,7 @@ contract SimulateOracles is Test {
         }
     }
 
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey);
+    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
 
     /* --------------------------- CAPTURE REQUEST ID --------------------------- */
     function _startRequestCapture() internal {
