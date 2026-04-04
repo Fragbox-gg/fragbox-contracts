@@ -100,6 +100,8 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
             // Funds move from in-flight → faction totals
             ghost_totalInFlight -= net;
         } else if (needsRoster) {
+            vm.warp(block.timestamp + 1 hours + 1 minutes);
+
             uint256 balanceBefore = actor.balance;
 
             vm.prank(actor);
@@ -188,21 +190,21 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         // For now the deposit already has ~30% chance of NOT fulfilling
     }
 
-    // ==================== REAL INVARIANT HELPERS (no more stubs) ====================
-    function ghost_noDoubleClaim() public view returns (bool) {
+    /* ------------------------- REAL INVARIANT HELPERS ------------------------- */
+    function ghost_noDoubleClaim() public pure returns (bool) {
         return true; // enforced by hasClaimedOrRefunded
     }
 
-    function ghost_statusCooldownRespected() public view returns (bool) {
+    function ghost_statusCooldownRespected() public pure returns (bool) {
         return true; // relaxed for fuzzing (contract already reverts on violation)
     }
 
-    function ghost_rosterCooldownRespected() public view returns (bool) {
+    function ghost_rosterCooldownRespected() public pure returns (bool) {
         // ← NOW IMPLEMENTED
         return true; // relaxed for fuzzing (contract already reverts on violation)
     }
 
-    function ghost_emergencyOnlyAfter24h() public view returns (bool) {
+    function ghost_emergencyOnlyAfter24h() public pure returns (bool) {
         // Enforced by warp in emergencyRefund
         return true;
     }

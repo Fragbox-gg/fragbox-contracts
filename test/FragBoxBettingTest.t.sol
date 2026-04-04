@@ -633,6 +633,8 @@ contract FragBoxBettingTest is SimulateOracles {
             SEND_VALUE - fragBoxBetting.calculateDepositFee(SEND_VALUE)
         );
 
+        vm.warp(block.timestamp + 1 hours + 1 minutes);
+
         vm.prank(USER);
         fragBoxBetting.withdrawBetAmountsInRosterValidationFlight();
 
@@ -854,7 +856,7 @@ contract FragBoxBettingTest is SimulateOracles {
         assertEq(uint256(fragBoxBetting.getEthUsdPrice()), fragBoxBetting.getUsdValueOfEth(1e18));
     }
 
-    function testgetKey() public view {
+    function testGetKey() public view {
         fragBoxBetting.getKey(MATCHID);
     }
 
@@ -879,16 +881,32 @@ contract FragBoxBettingTest is SimulateOracles {
         uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
         assertEq(
             SEND_VALUE - fee,
-            SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / fragBoxBetting.getPercentageBase()
+            SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / 100
         );
     }
 
-    function testGetMinBetAmountInUsd() public view {
-        fragBoxBetting.getMinBetAmountInUsd();
+    function testGetMinBetAmountInUsd() public {
+        fragBoxBetting.getMinBetAmountUsd();
+
+        vm.prank(fragBoxBetting.owner());
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount.selector);
+        fragBoxBetting.setMinBetAmountUsd(5000 ether);
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.setMinBetAmountUsd(5 ether);
+        assertEq(fragBoxBetting.getMinBetAmountUsd(), 5 ether);
     }
 
-    function testGetMaxBetAmountInUsd() public view {
-        fragBoxBetting.getMaxBetAmountInUsd();
+    function testGetMaxBetAmountInUsd() public {
+        fragBoxBetting.getMaxBetAmountUsd();
+
+        vm.prank(fragBoxBetting.owner());
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount.selector);
+        fragBoxBetting.setMaxBetAmountUsd(2 ether);
+        
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.setMaxBetAmountUsd(5000 ether);
+        assertEq(fragBoxBetting.getMaxBetAmountUsd(), 5000 ether);
     }
 
     function testGetPaused() public {

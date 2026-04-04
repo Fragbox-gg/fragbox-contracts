@@ -21,6 +21,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
     error FragBoxBetting__TimeoutNotReached();
+    error FragBoxBetting__InFlightTimeoutNotReached();
     error FragBoxBetting__BetTooSmall();
     error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
@@ -32,6 +33,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__NoBetForPlayer();
     error FragBoxBetting__InsufficientFundsForWithdrawal();
     error FragBoxBetting__WinnerUnknown();
+    error FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount();
+    error FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount();
     error FragBoxBetting__LosingFactionCannotClaim(Faction faction);
 
     using FunctionsRequest for FunctionsRequest.Request;
@@ -107,6 +110,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
+    event DonSecretsUpdated();
+    event OwnerFeesWithdrawn(uint256 amountWithdrawn);
+    event InFlightFundsWithdrawn(uint256 amountWithdrawn);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
@@ -114,14 +120,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant TIMEOUT_DURATION = 24 hours;
-    uint256 private constant HOUSE_FEE_PERCENTAGE = 1; // 1 = 1%
-    uint256 private constant PERCENTAGE_BASE = 100;
-    uint256 private constant STATUS_UPDATE_COOLDOWN = 5 minutes;
-    uint256 private constant ROSTER_UPDATE_COOLDOWN = 10 minutes;
-    uint256 private constant MIN_STATUS_UPDATE_FEE_USD = 20 ether;
-    uint256 private constant MIN_BET_AMOUNT_IN_USD = 3 ether;
-    uint256 private constant MAX_BET_AMOUNT_IN_USD = 3000 ether;
 
     /* -------------------------------------------------------------------------- */
     /*                             IMMUTABLE VARIABLES                            */
@@ -140,11 +138,21 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     mapping(bytes32 playerId => address registeredWallet) private playerIdToRegisteredWallet;
     mapping(bytes32 requestId => RequestInfo requestInfo) private requestIdToInfo;
     mapping(address wallet => uint256 amount) private betAmountsInRosterValidationFlight;
+    mapping(address wallet => uint256 lastDepositTime) private walletToLastDepositTime;
     mapping(address wallet => mapping(bytes32 playerKey => uint256 winnings)) private playerToWinnings;
 
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
     uint256 private ownerFeesCollected;
+    
+    uint256 private emergencyRefundTimeout = 24 hours;
+    uint256 private inFlightWithdrawalTimeout = 1 hours;
+    uint256 private houseFeePercentage = 1; // 1 = 1%
+    uint256 private minStatusUpdateFeeUsd = 20 ether;
+    uint256 private minBetAmountUsd = 3 ether;
+    uint256 private maxBetAmountUsd = 3000 ether;
+    uint256 private statusUpdateCooldown = 5 minutes;
+    uint256 private rosterUpdateCooldown = 10 minutes;
 
     constructor(
         address ethUsdPriceFeed,
@@ -248,7 +256,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - ROSTER_UPDATE_COOLDOWN < mb.playerToLastRosterUpdate[playerKey] + ROSTER_UPDATE_COOLDOWN)
+        if (block.timestamp - rosterUpdateCooldown < mb.playerToLastRosterUpdate[playerKey] + rosterUpdateCooldown)
         {
             revert FragBoxBetting__RosterUpdateTooSoon();
         }
@@ -288,6 +296,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     function updateDonSecrets(uint8 _slotId, uint64 _version) external onlyOwner {
         donHostedSecretsSlotId = _slotId;
         donHostedSecretsVersion = _version;
+        emit DonSecretsUpdated();
     }
 
     /**
@@ -311,7 +320,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         external
         payable
         whenNotPaused
-        costsFeeOrOwner(MIN_STATUS_UPDATE_FEE_USD)
+        costsFeeOrOwner(minStatusUpdateFeeUsd)
     {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
@@ -319,7 +328,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         if (mb.matchStatus == MatchStatus.Finished) revert FragBoxBetting__MatchAlreadyFinished();
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - STATUS_UPDATE_COOLDOWN < mb.lastStatusUpdate) {
+        if (block.timestamp - statusUpdateCooldown < mb.lastStatusUpdate) {
             revert FragBoxBetting__StatusUpdateTooSoon();
         }
 
@@ -449,8 +458,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         // The point of this is just to prevent anyone from sending an insanely large amount of money or an insanely small amount of money
         // We don't care if someone bets a large amount of money on a match, but we want to prevent mistakes (like someone sending 1000x the intended bet amount) and also prevent dust bets that would cause issues with the pro-rata calculations and leftover dust in the contract after payouts
         uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
-        if (usdValueOfEth < MIN_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooSmall();
-        if (usdValueOfEth > MAX_BET_AMOUNT_IN_USD) revert FragBoxBetting__BetTooLarge();
+        if (usdValueOfEth < minBetAmountUsd) revert FragBoxBetting__BetTooSmall();
+        if (usdValueOfEth > maxBetAmountUsd) revert FragBoxBetting__BetTooLarge();
 
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
@@ -488,6 +497,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         if (faction == Faction.Unknown) {
             betAmountsInRosterValidationFlight[msg.sender] += betAmount;
+            walletToLastDepositTime[msg.sender] = block.timestamp;
             updateMatchRoster(matchIdStr, playerIdStr, betAmount);
         } else {
             mb.walletToPlayerIdToBet[msg.sender][playerKey] += betAmount;
@@ -596,7 +606,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                 revert FragBoxBetting__MatchAlreadyFinished();
             }
 
-            if (block.timestamp <= mb.lastStatusUpdate + TIMEOUT_DURATION) {
+            if (block.timestamp <= mb.lastStatusUpdate + emergencyRefundTimeout) {
                 revert FragBoxBetting__TimeoutNotReached();
             }
         }
@@ -635,6 +645,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 amount = ownerFeesCollected;
         Address.sendValue(payable(owner()), amount);
         ownerFeesCollected = 0;
+        emit OwnerFeesWithdrawn(amount);
     }
 
     /**
@@ -643,6 +654,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * These funds could get locked up if the chainlink functions system fails to call fulfillRequest or fulfillRequest returns or reverts
      */
     function withdrawBetAmountsInRosterValidationFlight() external nonReentrant whenNotPaused {
+        if (walletToLastDepositTime[msg.sender] + inFlightWithdrawalTimeout > block.timestamp) {
+            revert FragBoxBetting__InFlightTimeoutNotReached();
+        }
+
         uint256 withdrawalAmount = betAmountsInRosterValidationFlight[msg.sender];
         if (withdrawalAmount <= 0) {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
@@ -650,6 +665,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(msg.sender), withdrawalAmount);
         betAmountsInRosterValidationFlight[msg.sender] -= withdrawalAmount;
+        emit InFlightFundsWithdrawn(withdrawalAmount);
     }
 
     /**
@@ -671,6 +687,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
         Address.sendValue(payable(withdrawalAddress), withdrawalAmount);
         betAmountsInRosterValidationFlight[withdrawalAddress] -= withdrawalAmount;
+        emit InFlightFundsWithdrawn(withdrawalAmount);
     }
 
     /* -------------------------------- PAUSABLE -------------------------------- */
@@ -683,9 +700,81 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /* -------------------------------------------------------------------------- */
+    /*                                   SETTERS                                  */
+    /* -------------------------------------------------------------------------- */
+    /**
+     * Sets the timeout for emergency refunds
+     * @param newEmergencyRefundTimeout The new timeout in seconds
+     */
+    function setEmergencyRefundTimeout(uint256 newEmergencyRefundTimeout) external onlyOwner {
+        emergencyRefundTimeout = newEmergencyRefundTimeout;
+    }
+
+    /**
+     * Sets the timeout for in-flight withdrawal requests
+     * @param newInFlightWithdrawalTimeout The new timeout in seconds
+     */
+    function setInFlightWithdrawalTimeout(uint256 newInFlightWithdrawalTimeout) external onlyOwner {
+        inFlightWithdrawalTimeout = newInFlightWithdrawalTimeout;
+    }
+
+    /**
+     * Sets the house fee percentage for deposits (e.g. if 1, then 1% fee on deposits that goes to the owner)
+     * @param newHouseFeePercentage The new house fee percentage
+     */
+    function setHouseFeePercentage(uint256 newHouseFeePercentage) external onlyOwner {
+        houseFeePercentage = newHouseFeePercentage;
+    }
+
+    /**
+     * Sets the min fee for status updates in USD (when not the owner)
+     * @param newMinStatusUpdateFeeUsd The new min fee in USD wei
+     */
+    function setMinStatusUpdateFeeUsd(uint256 newMinStatusUpdateFeeUsd) external onlyOwner {
+        minStatusUpdateFeeUsd = newMinStatusUpdateFeeUsd;
+    }
+
+    /**
+     * Sets the min bet amount for deposits in USD
+     * @param newMinBetAmountUsd The min bet amount in USD wei
+     */
+    function setMinBetAmountUsd(uint256 newMinBetAmountUsd) external onlyOwner {
+        if (newMinBetAmountUsd >= maxBetAmountUsd) {
+            revert FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount();
+        }
+        minBetAmountUsd = newMinBetAmountUsd;
+    }
+
+    /**
+     * Sets the max bet amount for deposits in USD
+     * @param newMaxBetAmountUsd The max bet amount in USD wei
+     */
+    function setMaxBetAmountUsd(uint256 newMaxBetAmountUsd) external onlyOwner {
+        if (newMaxBetAmountUsd <= minBetAmountUsd) {
+            revert FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount();
+        }
+        maxBetAmountUsd = newMaxBetAmountUsd;
+    }
+
+    /**
+     * Sets the cooldown period for status updates
+     * @param newStatusUpdateCooldown The cooldown period in seconds
+     */
+    function setStatusUpdateCooldown(uint256 newStatusUpdateCooldown) external onlyOwner {
+        statusUpdateCooldown = newStatusUpdateCooldown;
+    }
+
+    /**
+     * Sets the cooldown period for roster updates
+     * @param newRosterUpdateCooldown The cooldown period in seconds
+     */
+    function setRosterUpdateCooldown(uint256 newRosterUpdateCooldown) external onlyOwner {
+        rosterUpdateCooldown = newRosterUpdateCooldown;
+    }
+
+    /* -------------------------------------------------------------------------- */
     /*                                   GETTERS                                  */
     /* -------------------------------------------------------------------------- */
-
     /**
      * Gets the price of ETH in USD
      * @return The price of ETH in USD wei
@@ -783,38 +872,31 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param depositAmount The total amount of eth in wei that someone is depositing
      * @return The fee in wei
      */
-    function calculateDepositFee(uint256 depositAmount) public pure returns (uint256) {
-        return (depositAmount * HOUSE_FEE_PERCENTAGE) / PERCENTAGE_BASE;
+    function calculateDepositFee(uint256 depositAmount) public view returns (uint256) {
+        return (depositAmount * houseFeePercentage) / 100;
     }
 
     /**
      * Gets the percentage the contract takes during deposits
      * @return The percentage
      */
-    function getHouseFeePercentage() external pure returns (uint256) {
-        return HOUSE_FEE_PERCENTAGE;
-    }
-
-    /**
-     * @return The value to divide house fee percentage by
-     */
-    function getPercentageBase() external pure returns (uint256) {
-        return PERCENTAGE_BASE;
+    function getHouseFeePercentage() external view returns (uint256) {
+        return houseFeePercentage;
     }
 
     /**
      * Gets the minimum total deposit amount per match
      * @return The amount in USD wei
      */
-    function getMinBetAmountInUsd() external pure returns (uint256) {
-        return MIN_BET_AMOUNT_IN_USD;
+    function getMinBetAmountUsd() external view returns (uint256) {
+        return minBetAmountUsd;
     }
 
     /**
      * Gets the maximum total deposit amount per match
      * @return The amount in USD wei
      */
-    function getMaxBetAmountInUsd() external pure returns (uint256) {
-        return MAX_BET_AMOUNT_IN_USD;
+    function getMaxBetAmountUsd() external view returns (uint256) {
+        return maxBetAmountUsd;
     }
 }
