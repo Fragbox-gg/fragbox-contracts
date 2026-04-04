@@ -69,10 +69,12 @@ contract SimulateOracles is Test {
     }
 
     /* -------------------- SIMULATE CHAINLINK FUNCTIONS DON -------------------- */
+    function _simulateFulfill(bytes32 requestId, string memory jsonResponse, string memory err) internal {
+        _simulateFulfill(requestId, bytes(jsonResponse), bytes(err));
+    }
+
     function _simulateFulfill(bytes32 requestId, string memory jsonResponse, bytes memory err) internal {
-        bytes memory response = bytes(jsonResponse);
-        vm.prank(chainLinkFunctionsRouterAddress);
-        fragBoxBettingContract.handleOracleFulfillment(requestId, response, err);
+        _simulateFulfill(requestId, bytes(jsonResponse), err);
     }
 
     function _simulateFulfill(bytes32 requestId, bytes memory jsonResponse, bytes memory err) internal {

@@ -9,8 +9,8 @@ import {OracleLib} from "./libraries/OracleLib.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
@@ -64,14 +64,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                               CUSTOM STRUCTS                               */
     /* -------------------------------------------------------------------------- */
-    struct BetAuthorization {
-        bytes32 matchKey;
-        string playerId;
-        uint256 betAmount;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
     struct MatchBet {
         Faction winnerFaction;
         MatchStatus matchStatus;
@@ -114,15 +106,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event MatchClaimed(bytes32 indexed matchKey);
     event RosterUpdated(bytes32 indexed matchKey, bytes32 playerId, Faction playerFaction);
     event WinningsWithdrawn(string indexed playerId, address wallet, uint256 amount);
-    event PermitSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
     /* -------------------------------------------------------------------------- */
-    bytes32 public constant DEPOSIT_PERMIT_TYPEHASH = keccak256(
-        "DepositPermit(bytes32 matchKey,string playerId,uint256 depositAmount,uint256 nonce,uint256 deadline)"
-    );
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
@@ -562,45 +550,30 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 minBet = totalWinningBet < totalLosingBet ? totalWinningBet : totalLosingBet;
 
         Faction playerFaction = mb.playerToFaction[playerKey];
-        uint256 payoutOrRefund;
+        uint256 payoutOrRefund = 0;
 
         if (playerFaction == winnerFaction) {
-            // WINNER PATH: always get symmetric share (2 * minBet)
-            uint256 numerator = betAmount * 2 * minBet;
-            payoutOrRefund = numerator / totalWinningBet;
-
-            // Dust sweep for this division
-            uint256 dust = numerator % totalWinningBet;
-            ownerFeesCollected += dust;
+            // WINNER PATH: always get symmetric share (2 * minBet) + excess refund if winners overbet
+            payoutOrRefund = Math.mulDiv(betAmount, 2 * minBet, totalWinningBet, Math.Rounding.Ceil);
 
             // Refund excess when winning side overbet (symmetric to loser path)
             if (totalWinningBet > totalLosingBet) {
                 uint256 excess = totalWinningBet - minBet;
-                uint256 excessNumerator = betAmount * excess;
-                payoutOrRefund += excessNumerator / totalWinningBet;
-
-                uint256 excessDust = excessNumerator % totalWinningBet;
-                ownerFeesCollected += excessDust;
+                payoutOrRefund += Math.mulDiv(betAmount, excess, totalWinningBet, Math.Rounding.Ceil);
             }
         } else {
             // LOSER PATH: only get excess refund if losing faction overbet
             if (totalLosingBet <= totalWinningBet) {
                 revert FragBoxBetting__LosingFactionCannotClaim(playerFaction);
             }
+
             // excess on losing side is refunded pro-rata
             uint256 excess = totalLosingBet - minBet;
-            uint256 numerator = betAmount * excess;
-            payoutOrRefund = numerator / totalLosingBet;
-
-            // Dust sweep for this division
-            uint256 dust = numerator % totalLosingBet;
-            ownerFeesCollected += dust;
+            payoutOrRefund = Math.mulDiv(betAmount, excess, totalLosingBet, Math.Rounding.Ceil);
         }
 
-        if (payoutOrRefund > 0) {
-            playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
-            mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
-        }
+        playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
+        mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
 
         emit MatchClaimed(matchKey);
     }
@@ -711,6 +684,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
+     * @return The address of the chainlink functions router contract
+     */
+    function getChainlinkFunctionsRouter() external view returns (address) {
+        return I_CHAINLINKFUNCTIONSROUTER;
+    }
+
+    /**
      * Converts the match id string into a bytes object for gas savings
      * @param matchIdStr The match id string to convert
      * @return The match key
@@ -758,7 +738,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Gets the amount of owner fees accumulated that hasn't been withdrawn yet
      * @return The amount in wei
      */
-    function getOwnerFees() external view onlyOwner returns (uint256) {
+    function getOwnerFeesCollected() external view onlyOwner returns (uint256) {
         return ownerFeesCollected;
     }
 
