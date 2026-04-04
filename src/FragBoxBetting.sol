@@ -144,7 +144,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint8 private donHostedSecretsSlotId;
     uint64 private donHostedSecretsVersion;
     uint256 private ownerFeesCollected;
-    
+
     uint256 private emergencyRefundTimeout = 24 hours;
     uint256 private inFlightWithdrawalTimeout = 1 hours;
     uint256 private houseFeePercentage = 1; // 1 = 1%
@@ -256,8 +256,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
         if (donHostedSecretsVersion == 0) revert FragBoxBetting__SecretsNotSet();
 
-        if (block.timestamp - rosterUpdateCooldown < mb.playerToLastRosterUpdate[playerKey] + rosterUpdateCooldown)
-        {
+        if (block.timestamp - rosterUpdateCooldown < mb.playerToLastRosterUpdate[playerKey] + rosterUpdateCooldown) {
             revert FragBoxBetting__RosterUpdateTooSoon();
         }
 

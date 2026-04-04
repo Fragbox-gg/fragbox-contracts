@@ -879,10 +879,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
     function testCalculateDepositFee() public view {
         uint256 fee = fragBoxBetting.calculateDepositFee(SEND_VALUE);
-        assertEq(
-            SEND_VALUE - fee,
-            SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / 100
-        );
+        assertEq(SEND_VALUE - fee, SEND_VALUE - (SEND_VALUE * fragBoxBetting.getHouseFeePercentage()) / 100);
     }
 
     function testGetMinBetAmountInUsd() public {
@@ -903,7 +900,7 @@ contract FragBoxBettingTest is SimulateOracles {
         vm.prank(fragBoxBetting.owner());
         vm.expectRevert(FragBoxBetting.FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount.selector);
         fragBoxBetting.setMaxBetAmountUsd(2 ether);
-        
+
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.setMaxBetAmountUsd(5000 ether);
         assertEq(fragBoxBetting.getMaxBetAmountUsd(), 5000 ether);
