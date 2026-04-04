@@ -10,6 +10,8 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {console} from "forge-std/console.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
@@ -512,6 +514,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @param matchIdStr Match id to check
      */
     function claim(string calldata matchIdStr, string calldata playerIdStr) external nonReentrant whenNotPaused {
+        console.log("    Claiming", playerIdStr);
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -523,6 +526,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
         if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
+        console.log(betAmount, "bet amount");
 
         Faction winnerFaction = mb.winnerFaction;
         if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) {
@@ -549,34 +553,34 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 minBet = totalWinningBet < totalLosingBet ? totalWinningBet : totalLosingBet;
 
         Faction playerFaction = mb.playerToFaction[playerKey];
-        uint256 payoutOrRefund;
+        uint256 payoutOrRefund = 0;
 
         if (playerFaction == winnerFaction) {
-            // WINNER PATH: always get symmetric share (2 * minBet)
-            uint256 numerator = betAmount * 2 * minBet;
-            payoutOrRefund = numerator / totalWinningBet;
+            // WINNER PATH: always get symmetric share (2 * minBet) + excess refund if winners overbet
+            payoutOrRefund = Math.mulDiv(betAmount, 2 * minBet, totalWinningBet, Math.Rounding.Ceil);
 
             // Refund excess when winning side overbet (symmetric to loser path)
             if (totalWinningBet > totalLosingBet) {
                 uint256 excess = totalWinningBet - minBet;
-                uint256 excessNumerator = betAmount * excess;
-                payoutOrRefund += excessNumerator / totalWinningBet;
+                payoutOrRefund += Math.mulDiv(betAmount, excess, totalWinningBet, Math.Rounding.Ceil);
             }
         } else {
             // LOSER PATH: only get excess refund if losing faction overbet
             if (totalLosingBet <= totalWinningBet) {
                 revert FragBoxBetting__LosingFactionCannotClaim(playerFaction);
             }
+
             // excess on losing side is refunded pro-rata
             uint256 excess = totalLosingBet - minBet;
-            uint256 numerator = betAmount * excess;
-            payoutOrRefund = numerator / totalLosingBet;
+            payoutOrRefund = Math.mulDiv(betAmount, excess, totalLosingBet, Math.Rounding.Ceil);
+            console.log(excess, "losing excess");
+            console.log(totalLosingBet, "total losing bet");
+            console.log(payoutOrRefund, "losing payout or refund");
         }
 
-        if (payoutOrRefund > 0) {
-            playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
-            mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
-        }
+        console.log("adding to winnings", payoutOrRefund);
+        playerToWinnings[msg.sender][playerKey] += payoutOrRefund;
+        mb.walletToPlayerIdToBet[msg.sender][playerKey] = 0;
 
         emit MatchClaimed(matchKey);
     }

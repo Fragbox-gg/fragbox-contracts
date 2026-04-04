@@ -185,14 +185,16 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         vm.stopPrank();
 
         // Verify each user received *exactly* their pro-rata share (after withdraw)
-        assertEq(
+        assertApproxEqAbs(
             USER.balance,
             user1BalanceBefore - betWin1 - betLose1 + expectedUser1,
+            2,
             "USER net payout incorrect (winning + optional losing excess)"
         );
-        assertEq(
+        assertApproxEqAbs(
             USER2.balance,
             user2BalanceBefore - betWin2 - betLose2 + expectedUser2,
+            2,
             "USER2 net payout incorrect (winning + optional losing excess)"
         );
 
@@ -226,10 +228,10 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
             uint256
         )
     {
-        betWin1 = bound(betWin1, 0.01 ether, 1 ether);
-        betWin2 = bound(betWin2, 0.01 ether, 1 ether);
-        betLose1 = bound(betLose1, 0.01 ether, 1 ether);
-        betLose2 = bound(betLose2, 0.01 ether, 1 ether);
+        betWin1 = bound(betWin1, 0.0025 ether, 1 ether);
+        betWin2 = bound(betWin2, 0.0025 ether, 1 ether);
+        betLose1 = bound(betLose1, 0.0025 ether, 1 ether);
+        betLose2 = bound(betLose2, 0.0025 ether, 1 ether);
 
         uint256 betWin1Fee = fragBoxBetting.calculateDepositFee(betWin1);
         uint256 betWin2Fee = fragBoxBetting.calculateDepositFee(betWin2);

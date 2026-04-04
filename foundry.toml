@@ -19,8 +19,8 @@ fs_permissions = [
 ]
 
 [fuzz]
-runs = 800
-# seed = 1234567890 # optional, for reproducibility
+runs = 2048
+seed = "0x1234"
 max-test-rejects = 65536
 
 [invariant]
