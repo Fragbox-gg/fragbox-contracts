@@ -15,7 +15,6 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
 
     address public USER;
     address public USER2;
-    ETHReceiver public receiver;
     uint256 constant SEND_VALUE = 0.1 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
 
@@ -25,8 +24,7 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
         (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
 
-        receiver = new ETHReceiver();
-        USER = address(receiver);
+        USER = address(new ETHReceiver());
         vm.deal(USER, STARTING_BALANCE);
 
         USER2 = address(new ETHReceiver());

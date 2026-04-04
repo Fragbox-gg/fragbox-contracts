@@ -39,7 +39,7 @@ contract FragBoxBettingInvariantTest is Test {
 
         assertEq(
             address(fragBoxBetting).balance + totalWithdrawn,
-            handler.ghost_totalInput(),
+            handler.ghost_totalDeposited(),
             "ETH conservation violated: total input != contract balance + all withdrawals"
         );
     }
