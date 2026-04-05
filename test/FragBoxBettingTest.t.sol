@@ -168,7 +168,7 @@ contract FragBoxBettingTest is SimulateOracles {
                 == FragBoxBetting.Faction.Faction1
         );
         assert(mb.matchStatus == FragBoxBetting.MatchStatus.Unknown);
-        assertEq(mb.lastStatusUpdate, 0);
+        assertEq(mb.matchStartTimestamp, 0);
     }
 
     function test_FulfillStatusUpdate_Ongoing() public {

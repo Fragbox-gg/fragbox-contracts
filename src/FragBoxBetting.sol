@@ -70,9 +70,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         Faction winnerFaction;
         MatchStatus matchStatus;
         uint256[4] factionTotals; // 0 = Unknown, 1 = Faction1 total, 2 = Faction2, 3 = Draw
-        uint256 lastStatusUpdate;
+        uint256 matchStartTimestamp;
         uint8 tierId;
-        bytes32 statusRequestId;
 
         mapping(address wallet => mapping(bytes32 playerKey => InFlightBet inFlightBet))
             betAmountsInRosterValidationFlight;
@@ -85,9 +84,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         Faction winnerFaction;
         MatchStatus matchStatus;
         uint256[4] factionTotals;
-        uint256 lastStatusUpdate;
+        uint256 matchStartTimestamp;
         uint8 tierId;
-        bytes32 statusRequestId;
     }
 
     struct RequestInfo {
@@ -244,7 +242,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
             revert FragBoxBetting__MatchAlreadyFinished();
         }
 
-        mb.lastStatusUpdate = block.timestamp;
+        if (mb.matchStartTimestamp == 0) {
+            mb.matchStartTimestamp = block.timestamp;
+        }
 
         // EDGE-CASE PROTECTION:
         // First status update must land on Unknown / Voting / Ready.
@@ -574,7 +574,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
                 revert FragBoxBetting__MatchAlreadyFinished();
             }
 
-            if (block.timestamp <= mb.lastStatusUpdate + emergencyRefundTimeout) {
+            if (block.timestamp <= mb.matchStartTimestamp + emergencyRefundTimeout) {
                 revert FragBoxBetting__EmergencyRefundTimeoutNotReached();
             }
         }
@@ -779,8 +779,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         return MatchBetView({
             factionTotals: mb.factionTotals,
             winnerFaction: mb.winnerFaction,
-            statusRequestId: mb.statusRequestId,
-            lastStatusUpdate: mb.lastStatusUpdate,
+            matchStartTimestamp: mb.matchStartTimestamp,
             tierId: mb.tierId,
             matchStatus: mb.matchStatus
         });
