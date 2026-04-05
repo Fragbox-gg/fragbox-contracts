@@ -1,28 +1,41 @@
-## Fragbox-Contracts
-
-You can interact with these contracts at [our website](https://fragbox.gg/)
-
 # FragBox - CS2 Faceit PUG Betting on Chain
-
-![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?logo=solidity&logoColor=white)
-![Foundry](https://img.shields.io/badge/Foundry-FFDB1D?logo=foundry&logoColor=black)
-![Base](https://img.shields.io/badge/Base-0052FF?logo=base&logoColor=white)
+[![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?logo=solidity&logoColor=white)](https://soliditylang.org/)
+[![Foundry](https://img.shields.io/badge/Foundry-FFDB1D?logo=foundry&logoColor=black)](https://book.getfoundry.sh/)
+[![Base](https://img.shields.io/badge/Base-0052FF?logo=base&logoColor=white)](https://base.org/)
+[![USDC](https://img.shields.io/badge/USDC-2775CA?logo=usd&logoColor=white)](https://www.circle.com/en/usdc)
 ![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-121212?logo=openzeppelin&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Decentralized escrow betting for Counter-Strike 2 Faceit pickup games.** Players wager crypto on their own pugs, winners take money directly from the losing team. All transactions on **Base**. Match-fixing is impossible: you can only bet if you're verified in the match (by us), and you can never bet against yourself.
+**Decentralized escrow betting for Counter-Strike 2 Faceit pickup games (1v1, 5v5, and more).**
+
+Players bet USDC on **their own team** and win money directly from the opposing side. Match-fixing is prevented by Faceit API verification + wallet registration - you can only bet if you’re actually in the match and only on yourself winning.
+
+Live platform: **[fragbox.gg](https://fragbox.gg/)**
 
 Roster and outcome verification happens via onlyOwner methods. Built as a production-grade Solidity project to showcase advanced escrow mechanics and real-world esports data on-chain. Why didn't we use chainlink functions? It was simply too expensive per match. Each match requires many roster validation calls and match status update calls. Chainlink functions would make the business economically unviable, otherwise we would have to charge insane fees for our players.
 
-## ✨ Features
+## ✨ Key Features
 
-- **Anti-Match-Fixing Protection**: Only participating players can bet, and only on their own faction (verified via Faceit roster API).
+- **Ironclad Anti-Match-Fixing**: Only verified players in the match can bet, and only on their own faction (Faceit roster API).
+- **Wallet Registration**: Players sign in with Faceit/Steam on the website and connect their wallet before betting.
+- **Tiered Betting with USD Minimums**: Players bet in tiered queues, enforced on chain. Tiers are configurable by the contract owner.
 - **Dynamic Match States**: On-chain tracking of "READY" / "ONGOING" / "FINISHED" with winner faction resolution.
-- **USD-Minimum Bets**: Enforced via Chainlink ETH/USD Price Feed (~$5 minimum).
 - **1% House Fee**: Collected on every deposit and sent to the owner.
 - **Pro-Rata Payouts**: Winners split the pot proportionally (minus fee). If nobody bets on the winner → full refunds to all bettors.
-- **Invalid Bet Auto-Cleanup**: Bets from players not in the verified roster are automatically refunded.
-- **Emergency Timeout Refund**: Full refund after 4 hours if a match never finishes.
-- **Gas-Optimized & Secure**: Bytes32 match keys instead of strings and full event logging.
+- **Automatic Safety Nets**
+  - Invalid bets (not in verified roster) are auto-refunded.
+  - Emergency full refund after 4 hours if a match never finishes.
+- **Gas-Optimized & Secure** — `bytes32` match keys, `ReentrancyGuard`, `Pausable`, comprehensive custom errors + events.
+- **Seamless Player Experience** — Built for Coinbase CDP Smart Wallets + Paymaster (zero visible gas), on-ramps, and a planned Chrome extension.
+
+## 🎮 Realistic Player Experience
+
+1. Go to **[fragbox.gg](https://fragbox.gg/)** → “Sign in with Faceit”
+2. “Buy USDC” button appears → pay with card/bank (Coinbase Onramp)
+3. Chrome extension detects your active Faceit match → “Bet $50 USDC on this match”
+4. Click **Deposit** → transaction happens instantly with zero gas visible (Coinbase Smart Wallet + Paymaster)
+5. After the match → “Claim winnings” → USDC lands in your embedded wallet
+6. “Sell for cash” → cash out back to bank via Coinbase
 
 ## 🛠 How It Works
 
@@ -36,27 +49,42 @@ flowchart TD
     E --> |4h timeout| G[emergencyRefund -> all funds returned]
 ```
 
-1. Roster Verification: updateMatchRoster puts Faceit match data on chain. Contract stores verified mapping and refunds any invalid bets, such as betting on the enemy team or betting on a match you aren't in.
-2. Place Bet (deposit): Player must be verified in roster (verification can happen after the bet), bet > tier minimum and < tier maximum, 1% fee taken.
-3. Status Monitoring: updateMatchStatus puts Faceit match data on chain to detect match state/completion and winner.
-4. Resolution: Match is finished and has a winner -> winners claim via withdraw.
-5. Safety: emergencyRefund available after TIMEOUT_DURATION (4h).
+**Backend Automation** (currently powered by cron-job.org):
+- script/functions/getRoster.js - verifies player’s faction and sets it on-chain (called once per player per match)
+- script/functions/getStatus.js - checks if match is finished and who won (called repeatedly until resolved)
 
-📋 Smart Contracts
-Contract,Purpose,Key Highlights
-FragBoxBetting.sol,Core betting escrow,"ReentrancyGuard, Ownable. Handles bets, roster/status callbacks, payouts, refunds."
-ChainChecker.sol,Test utilities,Base chain ID detection (Mainnet/Sepolia/Anvil).
+**Example full match flow:**
+1. Player calls deposit() → emits BetPlaced
+2. Backend calls updateMatchRoster()
+3. Backend calls updateMatchStatus() until API returns MatchStatus.Finished
+4. Player (or automation) calls claim() or emergencyRefund()
+5. Players call withdraw() when ready
 
-Advanced Techniques Used:
-- Comprehensive custom errors and events for full transparency.
+## 📋 Smart Contracts
+| Contract | Purpose | Key Highlights |
+| -------- | ------- | -------------- |
+| FragBoxBetting.sol | Core betting & escrow logic | ReentrancyGuard, Ownable, Pausable, tier management, roster/status callbacks, pro-rata payouts, emergency refunds, in-flight bet handling
 
-🧪 Tech Stack
-- Language & Framework: Solidity ^0.8.24 + Foundry (Forge, Anvil, Cast)
-- Oracles:
-    - OnlyOwner functions for getting Faceit Data API v4 on chain. Chainlink Functions is too expensive for this project. In the future we can make our own DON if we want.
-- Security: OpenZeppelin (ReentrancyGuard, Ownable, SafeCast, Address, Strings), custom error handling, timeout protections
-- Chain: Base (optimized for low fees — deployed to Sepolia for testing, Mainnet ready)
-- Other: DON-hosted secrets, gas-optimized mappings, event-driven architecture, Foundry test suite with mocked Chainlink fulfillments
+**Main functions:**
+
+- deposit() - place a bet (must be verified in roster)
+- updateMatchRoster() - owner-only (backend) sets verified player factions
+- updateMatchStatus() - owner-only (backend) updates match state & winner
+- claim() - payout logic after match finishes
+- emergencyRefund() - full refund after 4-hour timeout
+- withdraw() - claim accumulated winnings
+
+## 🧪 Tech Stack
+
+- Smart Contracts: Solidity ^0.8.24 + Foundry (Forge, Anvil, Cast)
+- Blockchain: Base (low fees)
+- Token: USDC (via SafeERC20)
+- Price Feed: Chainlink ETH/USD
+- Frontend: Next.js + Vercel + Neon Postgres (see [fragbox-web](https://github.com/Fragbox-gg/fragbox-web))
+- Wallets: Coinbase CDP Smart Wallet + CDP Paymaster
+- Backend: Node.js scripts + cron-job.org automation
+- Verification: Faceit Data API v4 (owner-called for cost efficiency)
+- Security: OpenZeppelin (ReentrancyGuard, Ownable, Pausable, IERC20Metadata, SafeERC20), custom error handling, timeout protections
 
 🚀 Getting Started
 Prerequisites
@@ -78,38 +106,26 @@ make test
 forge script script/DeployFragBoxBetting.s.sol --rpc-url base_sepolia --broadcast
 ```
 
-Key Test Cases Covered:
-- Valid/invalid bet placement & roster checks
-- Chainlink Functions fulfillment (roster + status)
-- Auto-cleanup of invalid bets
-- Emergency refunds after timeout
-- Full refunds when nobody bets on winner
-- Price feed staleness protection
-
-Chainlink Functions Scripts
-- script/functions/getRoster.js — Fetches match roster & determines player's faction
-- script/functions/getStatus.js — Returns match status + winner (if finished)
-- Secret management: uploadFaceitSecretsToBaseSepolia.js + verify-faceit-functions.js
+Test Suite (comprehensive coverage):
+- test/FragBoxBettingTest.t.sol
+- test/FragBoxBettingFuzzTest.t.sol
+- test/FragBoxBettingInvariantTest.t.sol
+- test/handlers/FragBoxHandler.sol
 
 🔒 Security Considerations
 - ReentrancyGuard on all state-changing functions
-- Stale price feed protection via OracleLib
-- Owner-only sensitive operations (roster/status triggers, secret updates)
-- No admin withdrawal backdoors — funds are purely escrow-based
-- Comprehensive error conditions and events for auditability
-- 5-minute status update cooldown prevents spam
+- Pausable for emergencies
+- Timeouts for in-flight bets and emergency refunds
+- Owner-only sensitive operations (roster & status updates)
+- Full event logging and custom errors for auditability
+- No admin backdoors - pure escrow mechanics
 
-This project demonstrates production-ready patterns: decentralized third-party API integration, secure escrow betting, dynamic outcome resolution, and real-world esports data verification.
+*This project has not yet undergone a formal third-party audit. Use at your own risk and bet responsibly.*
 
 📜 License
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)
 
-👨‍💻 About the Developer
-Built by Patrick Seeman as a portfolio showcase/passion project for Solidity work.
-Highlights:
-- Real 3rd party API integration on chain
-- Custom off-chain JavaScript
-- Escrow + payout logic with anti-collusion guarantees
-- Foundry-based testing & deployment
+👨‍💻 About
+Fragbox is a passion project combining competitive CS2 Faceit pugs with decentralized finance. Built as a production-grade showcase of secure on-chain escrow betting with real-world esports data integration.
 
 *Built for fun and to prove what's possible when esports meets crypto. Bet responsibly. Not financial advice.*
