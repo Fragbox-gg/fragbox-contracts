@@ -20,8 +20,20 @@ contract FragBoxBettingTest is SimulateOracles {
     uint256 constant STARTING_USDC_BALANCE = 50e6; // $50
     uint256 constant WARP_TIME = 5 minutes;
 
-    event StatusUpdated(bytes32 indexed matchKey, string matchId, FragBoxBetting.MatchStatus status, FragBoxBetting.Faction winnerFaction);
-    event RosterUpdated(bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId, address indexed bettor, FragBoxBetting.Faction playerFaction);
+    event StatusUpdated(
+        bytes32 indexed matchKey,
+        string matchId,
+        FragBoxBetting.MatchStatus status,
+        FragBoxBetting.Faction winnerFaction
+    );
+    event RosterUpdated(
+        bytes32 indexed matchKey,
+        string matchId,
+        bytes32 indexed playerKey,
+        string playerId,
+        address indexed bettor,
+        FragBoxBetting.Faction playerFaction
+    );
     event HouseFeePercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
 
     function setUp() external {
@@ -176,9 +188,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
         // Voting status
         vm.expectEmit(true, true, true, true);
-        emit StatusUpdated(
-            matchKey, MATCHID, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown
-        );
+        emit StatusUpdated(matchKey, MATCHID, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown);
 
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchStatus(MATCHID, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown);
@@ -218,7 +228,7 @@ contract FragBoxBettingTest is SimulateOracles {
         // Deposit, advance time >24h, call emergencyRefund
         vm.prank(USER);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, SEND_VALUE, DEFAULT_TIER_ID);
-        
+
         // Validate roster
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID, USER, WINNING_FACTION);
@@ -250,7 +260,7 @@ contract FragBoxBettingTest is SimulateOracles {
         // deposit only on losing faction
         vm.prank(USER);
         fragBoxBetting.deposit(MATCHID, LOSING_PLAYERID, SEND_VALUE, DEFAULT_TIER_ID);
-        
+
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, LOSING_PLAYERID, USER, LOSING_FACTION);
 
@@ -454,7 +464,7 @@ contract FragBoxBettingTest is SimulateOracles {
 
         vm.prank(USER);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, bet1, DEFAULT_TIER_ID);
-        
+
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID, USER, WINNING_FACTION);
 
@@ -509,7 +519,14 @@ contract FragBoxBettingTest is SimulateOracles {
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, SEND_VALUE, DEFAULT_TIER_ID);
 
         vm.expectEmit(true, true, true, false);
-        emit RosterUpdated(fragBoxBetting.getKey(MATCHID), MATCHID, fragBoxBetting.getKey(WINNING_PLAYERID), WINNING_PLAYERID, USER, WINNING_FACTION);
+        emit RosterUpdated(
+            fragBoxBetting.getKey(MATCHID),
+            MATCHID,
+            fragBoxBetting.getKey(WINNING_PLAYERID),
+            WINNING_PLAYERID,
+            USER,
+            WINNING_FACTION
+        );
 
         vm.prank(fragBoxBetting.owner());
         fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID, USER, WINNING_FACTION);

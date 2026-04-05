@@ -27,15 +27,11 @@ contract HelperConfig is Script, ChainChecker {
     }
 
     function getBaseMainnetConfig() public pure returns (NetworkConfig memory) {
-        return NetworkConfig({
-            usdcAddress: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-        });
+        return NetworkConfig({usdcAddress: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913});
     }
 
     function getBaseSepoliaConfig() public pure returns (NetworkConfig memory) {
-        return NetworkConfig({
-            usdcAddress: 0x036CbD53842c5426634e7929541eC2318f3dCF7e
-        });
+        return NetworkConfig({usdcAddress: 0x036CbD53842c5426634e7929541eC2318f3dCF7e});
     }
 
     function getOrCreateAnvilConfig() public view returns (NetworkConfig memory) {
@@ -45,9 +41,7 @@ contract HelperConfig is Script, ChainChecker {
             return activeNetworkConfig;
         }
 
-        NetworkConfig memory anvilConfig = NetworkConfig({
-            usdcAddress: address(0)
-        });
+        NetworkConfig memory anvilConfig = NetworkConfig({usdcAddress: address(0)});
         return anvilConfig;
     }
 }

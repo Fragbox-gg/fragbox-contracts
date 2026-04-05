@@ -32,7 +32,7 @@ contract SimulateOracles is Test {
 
     string constant LOSING_PLAYERID = "92f1450e-182b-41db-8f31-53079df20c73";
     string constant LOSING_PLAYERID2 = "0a3fe9a7-b60f-4746-b30d-57bea3414077";
-    
+
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
     FragBoxBetting.Faction constant LOSING_FACTION = FragBoxBetting.Faction.Faction2;
 

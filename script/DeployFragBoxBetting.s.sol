@@ -8,9 +8,7 @@ import {HelperConfig} from "./HelperConfig.s.sol";
 contract DeployFragBoxBetting is Script {
     function run() external returns (FragBoxBetting) {
         HelperConfig helperConfig = new HelperConfig();
-        (
-            address usdcAddress
-        ) = helperConfig.activeNetworkConfig();
+        (address usdcAddress) = helperConfig.activeNetworkConfig();
 
         vm.startBroadcast();
         FragBoxBetting fragBoxBetting = new FragBoxBetting(usdcAddress);
