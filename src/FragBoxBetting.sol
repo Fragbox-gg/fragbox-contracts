@@ -8,6 +8,21 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+/**
+ * @title FragBoxBetting
+ * @author Patrick Seeman (https://github.com/LightPat)
+ * @notice Core escrow contract for the Fragbox.gg CS2 Faceit PUG betting platform.
+ *
+ * Players deposit USDC on **their own faction** in verified Faceit matches (1v1, 5v5, etc.).
+ * Match-fixing is prevented by:
+ *   - Wallet registration (Faceit OAuth → wallet link)
+ *   - Owner-only backend-driven roster verification via `updateMatchRoster` and status updates via `updateMatchStatus`
+ *
+ * Payouts are strictly symmetric (pro-rata with excess refunds) so both sides risk the exact same amount.
+ * Includes emergency refunds after 4 hours, in-flight bet recovery, configurable tiers, and a 1% house fee.
+ *
+ * All sensitive operations are `onlyOwner` (backend automation) or protected by `ReentrancyGuard` + `Pausable`.
+ */
 contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     using SafeERC20 for IERC20Metadata;
 
