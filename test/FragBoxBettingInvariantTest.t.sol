@@ -12,7 +12,7 @@ contract FragBoxBettingInvariantTest is Test {
 
     function setUp() public {
         DeployFragBoxBetting deployer = new DeployFragBoxBetting();
-        (fragBoxBetting,) = deployer.run();
+        fragBoxBetting = deployer.run();
 
         handler = new FragBoxHandler(fragBoxBetting);
 

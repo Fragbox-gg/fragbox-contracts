@@ -12,10 +12,6 @@ contract HelperConfig is Script, ChainChecker {
 
     struct NetworkConfig {
         address usdcAddress;
-        address chainLinkFunctionsRouter;
-        bytes32 donId;
-        uint64 subscriptionId;
-        uint64 donHostedSecretsVersion;
     }
 
     constructor() {
@@ -32,21 +28,13 @@ contract HelperConfig is Script, ChainChecker {
 
     function getBaseMainnetConfig() public pure returns (NetworkConfig memory) {
         return NetworkConfig({
-            usdcAddress: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,
-            chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
-            donId: 0x66756e2d626173652d6d61696e6e65742d310000000000000000000000000000,
-            subscriptionId: 0, // TODO
-            donHostedSecretsVersion: 0 // TODO
+            usdcAddress: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
         });
     }
 
     function getBaseSepoliaConfig() public pure returns (NetworkConfig memory) {
         return NetworkConfig({
-            usdcAddress: 0x036CbD53842c5426634e7929541eC2318f3dCF7e,
-            chainLinkFunctionsRouter: 0xf9B8fc078197181C841c296C876945aaa425B278,
-            donId: 0x66756e2d626173652d7365706f6c69612d310000000000000000000000000000,
-            subscriptionId: 607,
-            donHostedSecretsVersion: 1774138413
+            usdcAddress: 0x036CbD53842c5426634e7929541eC2318f3dCF7e
         });
     }
 
@@ -58,11 +46,7 @@ contract HelperConfig is Script, ChainChecker {
         }
 
         NetworkConfig memory anvilConfig = NetworkConfig({
-            usdcAddress: address(0),
-            chainLinkFunctionsRouter: address(0),
-            donId: bytes32(0),
-            subscriptionId: 0,
-            donHostedSecretsVersion: 0
+            usdcAddress: address(0)
         });
         return anvilConfig;
     }

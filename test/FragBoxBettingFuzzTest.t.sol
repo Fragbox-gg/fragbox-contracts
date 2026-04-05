@@ -20,11 +20,9 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
     uint8 constant DEFAULT_TIER_ID = 1;
     uint256 constant STARTING_USDC_BALANCE = 50e6; // $50
 
-    FragBoxBetting.Faction constant LOSING_FACTION = FragBoxBetting.Faction.Faction2;
-
     function setUp() external {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
-        (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
+        fragBoxBetting = deployFragBoxBetting.run();
 
         USER = makeAddr("USER");
         deal(address(fragBoxBetting.getUsdc()), USER, STARTING_USDC_BALANCE);
@@ -54,7 +52,7 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         fragBoxBetting.getUsdc().approve(address(fragBoxBetting), type(uint256).max);
         vm.stopPrank();
 
-        super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
+        super.setUpSimulation(fragBoxBetting);
 
         vm.startPrank(fragBoxBetting.owner());
         fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
@@ -68,15 +66,17 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         bet1 = bound(bet1, MIN_SEND_VALUE, MAX_SEND_VALUE);
         bet2 = bound(bet2, MIN_SEND_VALUE, MAX_SEND_VALUE);
 
-        super._startRequestCapture();
         vm.prank(USER);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, bet1, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID, USER, WINNING_FACTION);
+
         vm.prank(USER2);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID2, bet2, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER_2), "");
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID2, USER2, WINNING_FACTION);
 
         FragBoxBetting.MatchBetView memory vw = fragBoxBetting.getMatchBet(fragBoxBetting.getKey(MATCHID));
         uint256 bet1Fee = fragBoxBetting.calculateDepositFee(bet1);
@@ -96,39 +96,39 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         BetTestData memory data = getRandomBets(betWin1, betWin2, betLose1, betLose2);
 
         // Deposit winners
-        super._startRequestCapture();
         vm.prank(USER);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, data.betWin1, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID, USER, WINNING_FACTION);
+
         vm.prank(USER2);
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID2, data.betWin2, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER_2), "");
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, WINNING_PLAYERID2, USER2, WINNING_FACTION);
 
         // Deposit losers
-        super._startRequestCapture();
         vm.prank(USER3);
         fragBoxBetting.deposit(MATCHID, LOSING_PLAYERID, data.betLose1, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
 
-        super._startRequestCapture();
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, LOSING_PLAYERID, USER3, LOSING_FACTION);
+
         vm.prank(USER4);
         fragBoxBetting.deposit(MATCHID, LOSING_PLAYERID2, data.betLose2, DEFAULT_TIER_ID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER_2), "");
+
+        vm.prank(fragBoxBetting.owner());
+        fragBoxBetting.updateMatchRoster(MATCHID, LOSING_PLAYERID2, USER4, LOSING_FACTION);
 
         // Finish match with Faction1 win
-        super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchStatus(MATCHID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_STATUS_READY), "");
+        fragBoxBetting.updateMatchStatus(MATCHID, FragBoxBetting.MatchStatus.Ready);
 
         vm.warp(block.timestamp + 6 minutes);
 
-        super._startRequestCapture();
         vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.updateMatchStatus(MATCHID);
-        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_STATUS_FINISHED), "");
+        fragBoxBetting.updateMatchStatus(MATCHID, FragBoxBetting.MatchStatus.Finished, WINNING_FACTION);
 
         // Claim + withdraw
         vm.startPrank(USER);
