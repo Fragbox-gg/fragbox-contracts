@@ -146,7 +146,12 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
             fragBoxBetting.withdraw(LOSING_PLAYERID);
         } else {
             vm.expectRevert(
-                abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, LOSING_FACTION)
+                abi.encodeWithSelector(
+                    FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector,
+                    fragBoxBetting.getKey(MATCHID),
+                    fragBoxBetting.getKey(LOSING_PLAYERID),
+                    LOSING_FACTION
+                )
             );
             fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
         }
@@ -158,7 +163,12 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
             fragBoxBetting.withdraw(LOSING_PLAYERID2);
         } else {
             vm.expectRevert(
-                abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, LOSING_FACTION)
+                abi.encodeWithSelector(
+                    FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector,
+                    fragBoxBetting.getKey(MATCHID),
+                    fragBoxBetting.getKey(LOSING_PLAYERID2),
+                    LOSING_FACTION
+                )
             );
             fragBoxBetting.claim(MATCHID, LOSING_PLAYERID2);
         }

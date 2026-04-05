@@ -74,7 +74,14 @@ contract FragBoxBettingTest is SimulateOracles {
     /* -------------------------------------------------------------------------- */
     function testPlaceBetWithNoBalance() public {
         vm.startPrank(USER);
-        vm.expectRevert(abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__BetTooSmall.selector, 0));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__BetTooSmall.selector,
+                fragBoxBetting.getKey(MATCHID),
+                0,
+                fragBoxBetting.getTier(DEFAULT_TIER_ID).minBetAmount
+            )
+        );
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, 0, DEFAULT_TIER_ID);
         vm.stopPrank();
     }
@@ -103,7 +110,14 @@ contract FragBoxBettingTest is SimulateOracles {
     function testDepositEnforcesMinBetUSD() public {
         uint256 tooSmallDeposit = 3_000_000; // $3
         vm.prank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooSmall.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__BetTooSmall.selector,
+                fragBoxBetting.getKey(MATCHID),
+                tooSmallDeposit,
+                fragBoxBetting.getTier(DEFAULT_TIER_ID).minBetAmount
+            )
+        );
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, tooSmallDeposit, DEFAULT_TIER_ID);
     }
 
@@ -111,7 +125,14 @@ contract FragBoxBettingTest is SimulateOracles {
         uint256 tooLargeDeposit = 100_000_000_000_000; // $100,000
         deal(address(fragBoxBetting.getUsdc()), USER, tooLargeDeposit);
         vm.prank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__BetTooLarge.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__BetTooLarge.selector,
+                fragBoxBetting.getKey(MATCHID),
+                tooLargeDeposit,
+                fragBoxBetting.getTier(DEFAULT_TIER_ID).maxBetAmount
+            )
+        );
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, tooLargeDeposit, DEFAULT_TIER_ID);
     }
 
@@ -120,7 +141,11 @@ contract FragBoxBettingTest is SimulateOracles {
         fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
 
         vm.startPrank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__InvalidWallet.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FragBoxBetting.FragBoxBetting__InvalidWallet.selector, fragBoxBetting.getKey(MATCHID)
+            )
+        );
         fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, SEND_VALUE, DEFAULT_TIER_ID);
         vm.stopPrank();
     }
@@ -242,7 +267,7 @@ contract FragBoxBettingTest is SimulateOracles {
         fragBoxBetting.updateMatchStatus(MATCHID, FragBoxBetting.MatchStatus.Ongoing, FragBoxBetting.Faction.Unknown);
 
         vm.startPrank(USER);
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__TimeoutNotReached.selector);
+        vm.expectRevert(FragBoxBetting.FragBoxBetting__EmergencyRefundTimeoutNotReached.selector);
         fragBoxBetting.emergencyRefund(MATCHID, WINNING_PLAYERID);
         vm.warp(block.timestamp + 6 hours);
         fragBoxBetting.emergencyRefund(MATCHID, WINNING_PLAYERID);
@@ -365,7 +390,10 @@ contract FragBoxBettingTest is SimulateOracles {
         vm.startPrank(USER);
         vm.expectRevert(
             abi.encodeWithSelector(
-                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, FragBoxBetting.Faction.Faction2
+                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector,
+                fragBoxBetting.getKey(MATCHID),
+                fragBoxBetting.getKey(LOSING_PLAYERID),
+                LOSING_FACTION
             )
         );
         fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
@@ -419,7 +447,10 @@ contract FragBoxBettingTest is SimulateOracles {
         vm.startPrank(USER2);
         vm.expectRevert(
             abi.encodeWithSelector(
-                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, FragBoxBetting.Faction.Faction2
+                FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector,
+                fragBoxBetting.getKey(MATCHID),
+                fragBoxBetting.getKey(LOSING_PLAYERID),
+                LOSING_FACTION
             )
         );
         fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
@@ -608,7 +639,9 @@ contract FragBoxBettingTest is SimulateOracles {
         assertEq(tier3.maxBetAmount, fragBoxBetting.toUsdc(100));
 
         vm.prank(fragBoxBetting.owner());
-        vm.expectRevert(FragBoxBetting.FragBoxBetting__MinBetMustBeGreaterThanMaxBet.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__MinBetMustBeGreaterThanMaxBet.selector, 10, 5)
+        );
         fragBoxBetting.setTier(1, 10, 5);
 
         vm.prank(fragBoxBetting.owner());

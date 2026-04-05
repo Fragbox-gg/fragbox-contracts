@@ -14,31 +14,29 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                   ERRORS                                   */
     /* -------------------------------------------------------------------------- */
-    error FragBoxBetting__InvalidWallet();
-    error FragBoxBetting__TierMismatch();
-    error FragBoxBetting__TierNotActive();
-    error FragBoxBetting__TierAlreadySet();
-    error FragBoxBetting__TierIdMustBeGreaterThanZero();
+    error FragBoxBetting__InvalidWallet(bytes32 matchKey);
+    error FragBoxBetting__TierMismatch(bytes32 matchKey, uint8 expectedTier, uint8 providedTier);
+    error FragBoxBetting__TierNotActive(uint8 tierId);
+    error FragBoxBetting__TierAlreadySet(bytes32 matchKey);
+    error FragBoxBetting__TierIdMustBeGreaterThanZero(uint8 tierId);
+    error FragBoxBetting__BetTooSmall(bytes32 matchKey, uint256 sentAmount, uint256 minAmount);
+    error FragBoxBetting__BetTooLarge(bytes32 matchKey, uint256 sentAmount, uint256 maxAmount);
     error FragBoxBetting__MatchStatusDoesNotAllowBets();
     error FragBoxBetting__MatchStatusIsInvalid();
     error FragBoxBetting__MatchAlreadyFinished();
-    error FragBoxBetting__MatchNotFinished();
-    error FragBoxBetting__TimeoutNotReached();
+    error FragBoxBetting__MatchNotFinished(bytes32 matchKey);
+    error FragBoxBetting__EmergencyRefundTimeoutNotReached();
     error FragBoxBetting__InFlightTimeoutNotReached();
-    error FragBoxBetting__BetTooSmall();
-    error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
-    error FragBoxBetting__NoBetForPlayer();
+    error FragBoxBetting__NoBetForPlayer(bytes32 matchKey, bytes32 playerKey);
     error FragBoxBetting__InsufficientFundsForWithdrawal();
-    error FragBoxBetting__WinnerUnknown();
-    error FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
+    error FragBoxBetting__WinnerUnknown(bytes32 matchKey);
+    error FragBoxBetting__MinBetMustBeGreaterThanMaxBet(uint256 minAmount, uint256 maxAmount);
     error FragBoxBetting__PlayerFactionInvalid();
-    error FragBoxBetting__LosingFactionCannotClaim(Faction faction);
-    error FragBoxBetting__InvalidMatchStatus(
-        bytes32 matchKey, string matchId, MatchStatus currentStatus, MatchStatus newStatus
-    );
+    error FragBoxBetting__LosingFactionCannotClaim(bytes32 matchKey, bytes32 playerKey, Faction faction);
+    error FragBoxBetting__InvalidMatchStatus(bytes32 matchKey, MatchStatus currentStatus, MatchStatus newStatus);
     error FragBoxBetting__FinishedStatusMustHaveAWinner(
-        bytes32 matchKey, string matchId, MatchStatus currentStatus, MatchStatus newStatus, Faction winnerFaction
+        bytes32 matchKey, MatchStatus currentStatus, MatchStatus newStatus, Faction winnerFaction
     );
 
     /* -------------------------------------------------------------------------- */
@@ -205,11 +203,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
      */
     function _setTier(uint8 tierId, uint256 minBetAmount, uint256 maxBetAmount) internal {
         if (tierId == 0) {
-            revert FragBoxBetting__TierIdMustBeGreaterThanZero();
+            revert FragBoxBetting__TierIdMustBeGreaterThanZero(tierId);
         }
 
         if (minBetAmount >= maxBetAmount) {
-            revert FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
+            revert FragBoxBetting__MinBetMustBeGreaterThanMaxBet(minBetAmount, maxBetAmount);
         }
 
         tiers[tierId] = Tier({minBetAmount: toUsdc(minBetAmount), maxBetAmount: toUsdc(maxBetAmount), active: true});
@@ -231,15 +229,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         MatchStatus currentMatchStatus = mb.matchStatus;
 
         if (newMatchStatus == MatchStatus.Unknown) {
-            revert FragBoxBetting__InvalidMatchStatus(matchKey, matchIdStr, currentMatchStatus, newMatchStatus);
+            revert FragBoxBetting__InvalidMatchStatus(matchKey, currentMatchStatus, newMatchStatus);
         }
 
         if (currentMatchStatus == MatchStatus.Ongoing) {
             if (newMatchStatus != MatchStatus.Finished) {
-                revert FragBoxBetting__InvalidMatchStatus(matchKey, matchIdStr, currentMatchStatus, newMatchStatus);
+                revert FragBoxBetting__InvalidMatchStatus(matchKey, currentMatchStatus, newMatchStatus);
             }
         } else if (currentMatchStatus == MatchStatus.Invalid) {
-            revert FragBoxBetting__InvalidMatchStatus(matchKey, matchIdStr, currentMatchStatus, newMatchStatus);
+            revert FragBoxBetting__InvalidMatchStatus(matchKey, currentMatchStatus, newMatchStatus);
         }
 
         if (mb.matchStatus == MatchStatus.Finished) {
@@ -267,7 +265,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         if (newMatchStatus == MatchStatus.Finished) {
             if (winnerFaction == Faction.Unknown) {
                 revert FragBoxBetting__FinishedStatusMustHaveAWinner(
-                    matchKey, matchIdStr, currentMatchStatus, newMatchStatus, winnerFaction
+                    matchKey, currentMatchStatus, newMatchStatus, winnerFaction
                 );
             }
 
@@ -380,18 +378,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
      * @param tierId The tierId to set for the match
      */
     function setMatchTier(string calldata matchIdStr, uint8 tierId) external onlyOwner {
-        if (tierId == 0) revert FragBoxBetting__TierIdMustBeGreaterThanZero();
+        if (tierId == 0) revert FragBoxBetting__TierIdMustBeGreaterThanZero(tierId);
 
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
         if (mb.tierId != 0) {
-            revert FragBoxBetting__TierAlreadySet();
+            revert FragBoxBetting__TierAlreadySet(matchKey);
         }
 
         // Validate that the tier actually exists and is active
         if (!tiers[tierId].active) {
-            revert FragBoxBetting__TierNotActive();
+            revert FragBoxBetting__TierNotActive(tierId);
         }
 
         mb.tierId = tierId;
@@ -412,18 +410,21 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     {
         // TierId parameter (on-chain enforcement)
         Tier memory tier = tiers[tierId];
-        if (!tier.active) revert FragBoxBetting__TierNotActive();
-        if (rawBetAmount < tier.minBetAmount) revert FragBoxBetting__BetTooSmall();
-        if (rawBetAmount > tier.maxBetAmount) revert FragBoxBetting__BetTooLarge();
+        if (!tier.active) revert FragBoxBetting__TierNotActive(tierId);
 
         bytes32 matchKey = _getKey(matchIdStr);
+        uint256 minBetAmount = tier.minBetAmount;
+        uint256 maxBetAmount = tier.maxBetAmount;
+        if (rawBetAmount < minBetAmount) revert FragBoxBetting__BetTooSmall(matchKey, rawBetAmount, minBetAmount);
+        if (rawBetAmount > maxBetAmount) revert FragBoxBetting__BetTooLarge(matchKey, rawBetAmount, maxBetAmount);
+
         MatchBet storage mb = matchBets[matchKey];
 
         // Associate match with tier (locked on first deposit)
         if (mb.tierId == 0) {
             mb.tierId = tierId;
         } else if (mb.tierId != tierId) {
-            revert FragBoxBetting__TierMismatch();
+            revert FragBoxBetting__TierMismatch(matchKey, mb.tierId, tierId);
         }
 
         if (mb.matchStatus == MatchStatus.Ongoing || mb.matchStatus == MatchStatus.Finished) {
@@ -437,7 +438,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         // This prevents match fixing by forcing players to register their wallet addresses beforehand
         bytes32 playerKey = _getKey(playerIdStr);
         if (playerIdToRegisteredWallet[playerKey] != msg.sender) {
-            revert FragBoxBetting__InvalidWallet();
+            revert FragBoxBetting__InvalidWallet(matchKey);
         }
 
         // Calculate house fee and actual bet amount
@@ -445,7 +446,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         uint256 betAmount = rawBetAmount - fee;
 
         if (betAmount == 0) {
-            revert FragBoxBetting__BetTooSmall();
+            revert FragBoxBetting__BetTooSmall(matchKey, 0, minBetAmount);
         }
 
         I_USDC.safeTransferFrom(msg.sender, address(this), rawBetAmount);
@@ -458,8 +459,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         if (faction == Faction.Unknown) {
             uint256 existingBetAmount = mb.betAmountsInRosterValidationFlight[msg.sender][playerKey].betAmount
                 + mb.walletToPlayerIdToBet[msg.sender][playerKey];
-            if (existingBetAmount + rawBetAmount < tier.minBetAmount) revert FragBoxBetting__BetTooSmall();
-            if (existingBetAmount + rawBetAmount > tier.maxBetAmount) revert FragBoxBetting__BetTooLarge();
+
+            if (existingBetAmount + rawBetAmount < minBetAmount) {
+                revert FragBoxBetting__BetTooSmall(matchKey, existingBetAmount + rawBetAmount, minBetAmount);
+            }
+            if (existingBetAmount + rawBetAmount > maxBetAmount) {
+                revert FragBoxBetting__BetTooLarge(matchKey, existingBetAmount + rawBetAmount, maxBetAmount);
+            }
 
             mb.betAmountsInRosterValidationFlight[msg.sender][playerKey] =
                 InFlightBet({betAmount: existingBetAmount + betAmount, lastDepositTime: block.timestamp});
@@ -490,16 +496,16 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
 
         MatchStatus matchStatus = mb.matchStatus;
         if (matchStatus != MatchStatus.Finished && matchStatus != MatchStatus.Invalid) {
-            revert FragBoxBetting__MatchNotFinished();
+            revert FragBoxBetting__MatchNotFinished(matchKey);
         }
 
         bytes32 playerKey = _getKey(playerIdStr);
         uint256 betAmount = mb.walletToPlayerIdToBet[msg.sender][playerKey];
-        if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer();
+        if (betAmount == 0) revert FragBoxBetting__NoBetForPlayer(matchKey, playerKey);
 
         Faction winnerFaction = mb.winnerFaction;
         if (winnerFaction == Faction.Unknown && matchStatus != MatchStatus.Invalid) {
-            revert FragBoxBetting__WinnerUnknown();
+            revert FragBoxBetting__WinnerUnknown(matchKey);
         }
         uint8 winnerFId = uint8(winnerFaction);
 
@@ -536,7 +542,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         } else {
             // LOSER PATH: only get excess refund if losing faction overbet
             if (totalLosingBet <= totalWinningBet) {
-                revert FragBoxBetting__LosingFactionCannotClaim(playerFaction);
+                revert FragBoxBetting__LosingFactionCannotClaim(matchKey, playerKey, playerFaction);
             }
 
             // excess on losing side is refunded pro-rata
@@ -569,7 +575,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
             }
 
             if (block.timestamp <= mb.lastStatusUpdate + emergencyRefundTimeout) {
-                revert FragBoxBetting__TimeoutNotReached();
+                revert FragBoxBetting__EmergencyRefundTimeoutNotReached();
             }
         }
 
