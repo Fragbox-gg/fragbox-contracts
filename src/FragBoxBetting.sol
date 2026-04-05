@@ -213,6 +213,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         tiers[tierId] = Tier({minBetAmount: toUsdc(minBetAmount), maxBetAmount: toUsdc(maxBetAmount), active: true});
     }
 
+    /**
+     * Called REPEATEDLY by backend to update match status
+     * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
+     * @param matchIdStr The match Id to check
+     * @param newMatchStatus The status of the match
+     * @param winnerFaction The winning faction of the match
+     */
     function _updateMatchStatus(string calldata matchIdStr, MatchStatus newMatchStatus, Faction winnerFaction)
         internal
     {
