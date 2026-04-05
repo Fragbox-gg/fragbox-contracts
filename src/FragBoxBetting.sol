@@ -108,7 +108,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /* -------------------------------------------------------------------------- */
     /*                                   EVENTS                                   */
     /* -------------------------------------------------------------------------- */
-    event BetPlaced(bytes32 indexed matchKey, string matchId, address indexed better, uint256 amount, string playerId, uint8 tierId);
+    event BetPlaced(
+        bytes32 indexed matchKey, string matchId, address indexed better, uint256 amount, string playerId, uint8 tierId
+    );
     event MatchClaimed(
         bytes32 indexed matchKey,
         string matchId,
@@ -117,16 +119,24 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         uint256 amountClaimed,
         bool isRefund
     );
-    event EmergencyRefund(bytes32 indexed matchKey, string matchId, address indexed claimer, string playerId, uint256 amountRefunded);
+    event EmergencyRefund(
+        bytes32 indexed matchKey, string matchId, address indexed claimer, string playerId, uint256 amountRefunded
+    );
     event WinningsWithdrawn(bytes32 indexed playerKey, string playerId, address indexed wallet, uint256 amount);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
     /* --------------------------- CHAINLINK FUNCTIONS -------------------------- */
     event StatusRequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
-    event RosterRequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId);
-    event StatusRequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction);
+    event RosterRequestSent(
+        bytes32 indexed requestId, bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId
+    );
+    event StatusRequestFulfilled(
+        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
+    );
     event RosterRequestFulfilled(bytes32 indexed matchKey, bytes32 indexed playerKey, Faction playerFaction);
     event StatusRequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
-    event RosterRequestError(bytes32 indexed requestId, bytes32 indexed matchKey, bytes32 indexed playerKey, string error);
+    event RosterRequestError(
+        bytes32 indexed requestId, bytes32 indexed matchKey, bytes32 indexed playerKey, string error
+    );
     /* ------------------------- ADMIN / CONFIG CHANGES ------------------------- */
     event EmergencyRefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
     event InFlightWithdrawalTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
@@ -306,9 +316,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
         }
 
-        tiers[tierId] = Tier({
-            minBetAmount: toUsdc(minBetAmount), maxBetAmount: toUsdc(maxBetAmount), active: true
-        });
+        tiers[tierId] = Tier({minBetAmount: toUsdc(minBetAmount), maxBetAmount: toUsdc(maxBetAmount), active: true});
     }
 
     constructor(

@@ -23,9 +23,18 @@ contract FragBoxBettingTest is SimulateOracles {
 
     FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
 
-    event StatusRequestFulfilled(bytes32 indexed requestId, bytes32 indexed matchKey, FragBoxBetting.MatchStatus status, FragBoxBetting.Faction winnerFaction);
-    event RosterRequestFulfilled(bytes32 indexed matchKey, bytes32 indexed playerKey, FragBoxBetting.Faction playerFaction);
-    event RosterRequestError(bytes32 indexed requestId, bytes32 indexed matchKey, bytes32 indexed playerKey, string error);
+    event StatusRequestFulfilled(
+        bytes32 indexed requestId,
+        bytes32 indexed matchKey,
+        FragBoxBetting.MatchStatus status,
+        FragBoxBetting.Faction winnerFaction
+    );
+    event RosterRequestFulfilled(
+        bytes32 indexed matchKey, bytes32 indexed playerKey, FragBoxBetting.Faction playerFaction
+    );
+    event RosterRequestError(
+        bytes32 indexed requestId, bytes32 indexed matchKey, bytes32 indexed playerKey, string error
+    );
     event HouseFeePercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
 
     function setUp() external {
@@ -227,7 +236,9 @@ contract FragBoxBettingTest is SimulateOracles {
         bytes memory response = bytes(PROCESSED_STATUS_VOTING);
 
         vm.expectEmit(true, true, true, true);
-        emit StatusRequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown);
+        emit StatusRequestFulfilled(
+            statusReq, matchKey, FragBoxBetting.MatchStatus.Voting, FragBoxBetting.Faction.Unknown
+        );
 
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
@@ -246,7 +257,9 @@ contract FragBoxBettingTest is SimulateOracles {
         response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
-        emit StatusRequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
+        emit StatusRequestFulfilled(
+            statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1
+        );
 
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
@@ -268,7 +281,9 @@ contract FragBoxBettingTest is SimulateOracles {
         bytes memory err = bytes("Faceit API error");
 
         vm.expectEmit(true, true, true, true);
-        emit RosterRequestError(requestId, fragBoxBetting.getKey(MATCHID), fragBoxBetting.getKey(WINNING_PLAYERID), "Faceit API error");
+        emit RosterRequestError(
+            requestId, fragBoxBetting.getKey(MATCHID), fragBoxBetting.getKey(WINNING_PLAYERID), "Faceit API error"
+        );
 
         uint256 gasBefore = gasleft();
         super._simulateFulfill(requestId, string(""), err);
@@ -405,7 +420,9 @@ contract FragBoxBettingTest is SimulateOracles {
         bytes memory response = bytes(PROCESSED_STATUS_READY);
 
         vm.expectEmit(true, true, true, true);
-        emit StatusRequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Ready, FragBoxBetting.Faction.Unknown);
+        emit StatusRequestFulfilled(
+            statusReq, matchKey, FragBoxBetting.MatchStatus.Ready, FragBoxBetting.Faction.Unknown
+        );
 
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
@@ -424,7 +441,9 @@ contract FragBoxBettingTest is SimulateOracles {
         response = bytes(PROCESSED_STATUS_FINISHED);
 
         vm.expectEmit(true, true, true, true);
-        emit StatusRequestFulfilled(statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1);
+        emit StatusRequestFulfilled(
+            statusReq, matchKey, FragBoxBetting.MatchStatus.Finished, FragBoxBetting.Faction.Faction1
+        );
 
         gasBefore = gasleft();
         super._simulateFulfill(statusReq, response, "");
