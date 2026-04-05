@@ -6,15 +6,11 @@ import {CommonBase} from "forge-std/Base.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {FragBoxBetting} from "../../src/FragBoxBetting.sol";
 import {SimulateOracles} from "../SimulateOracles.t.sol";
-import {ETHReceiver} from "test/mocks/ETHReceiver.sol";
 
 contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     FragBoxBetting public betting;
 
     address[] public actors;
-    string constant MATCH_ID = "1-a536dd90-4df3-42df-be6e-d158177fdef2";
-    string constant PLAYER_WIN = "94f98244-169d-478a-a5dd-21dde2e649ca";
-    string constant PLAYER_LOSE = "92f1450e-182b-41db-8f31-53079df20c73";
 
     string[3] public factions = ["faction1", "faction2", "draw"];
 
@@ -34,14 +30,15 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         setUpSimulation(betting.getChainlinkFunctionsRouter(), _betting);
 
-        actors.push(address(new ETHReceiver()));
-        actors.push(address(new ETHReceiver()));
-        actors.push(address(new ETHReceiver()));
-        actors.push(address(new ETHReceiver()));
+        actors.push(makeAddr("alice"));
+        actors.push(makeAddr("bob"));
+        actors.push(makeAddr("charlie"));
+        actors.push(makeAddr("dave"));
 
         // Fund actors
         for (uint256 i = 0; i < actors.length; i++) {
-            vm.deal(actors[i], 100 ether);
+            deal(address(betting.getUsdc()), actors[i], 50_000_000); // $50
+            betting.getUsdc().approve(address(betting), type(uint256).max);
         }
     }
 
@@ -58,7 +55,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         amount = bound(amount, 0.01 ether, 3 ether);
 
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
-        string memory playerId = factionIdx % 2 == 0 ? PLAYER_WIN : PLAYER_LOSE;
+        string memory playerId = factionIdx % 2 == 0 ? WINNING_PLAYERID : LOSING_PLAYERID;
 
         _registerIfNeeded(actor, playerId);
 
@@ -66,7 +63,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         uint256 net = amount - fee;
 
         // detect if this deposit will go through roster validation
-        bytes32 matchKey = betting.getKey(MATCH_ID);
+        bytes32 matchKey = betting.getKey(MATCHID);
         bytes32 playerKey = betting.getKey(playerId);
         bool needsRoster = (betting.getPlayerFaction(matchKey, playerKey) == FragBoxBetting.Faction.Unknown);
 
@@ -74,7 +71,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
             super._startRequestCapture();
         }
         vm.prank(actor);
-        betting.deposit{value: amount}(MATCH_ID, playerId);
+        betting.deposit(MATCHID, playerId, amount, 0);
 
         bytes32 requestId = bytes32(0);
         if (needsRoster) {
@@ -91,7 +88,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         // 70% of the time simulate successful roster fulfillment
         if (needsRoster && uint256(keccak256(abi.encode(block.timestamp, actorIdx))) % 100 < 70) {
-            string memory response = (keccak256(bytes(playerId)) == keccak256(bytes(PLAYER_WIN)))
+            string memory response = (keccak256(bytes(playerId)) == keccak256(bytes(WINNING_PLAYERID)))
                 ? PROCESSED_ROSTER_READY_WINNING_PLAYER
                 : PROCESSED_ROSTER_READY_LOSING_PLAYER;
 
@@ -115,7 +112,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     function updateMatchStatus() public {
         super._startRequestCapture();
         vm.prank(betting.owner());
-        betting.updateMatchStatus(MATCH_ID); // non-owner pays small fee
+        betting.updateMatchStatus(MATCHID); // non-owner pays small fee
         bytes32 requestId = super._captureRequestId();
 
         lastStatusUpdateTs = block.timestamp;
@@ -131,10 +128,10 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
         if (hasClaimedOrRefunded[actor]) return; // no double claim
 
-        string memory playerId = (actorIdx % 2 == 0) ? PLAYER_WIN : PLAYER_LOSE;
+        string memory playerId = (actorIdx % 2 == 0) ? WINNING_PLAYERID : LOSING_PLAYERID;
 
         vm.prank(actor);
-        betting.claim(MATCH_ID, playerId);
+        betting.claim(MATCHID, playerId);
 
         hasClaimedOrRefunded[actor] = true;
     }
@@ -145,17 +142,17 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
         vm.warp(block.timestamp + 25 hours);
 
-        string memory playerId = (actorIdx % 2 == 0) ? PLAYER_WIN : PLAYER_LOSE;
+        string memory playerId = (actorIdx % 2 == 0) ? WINNING_PLAYERID : LOSING_PLAYERID;
 
         vm.prank(actor);
-        betting.emergencyRefund(MATCH_ID, playerId);
+        betting.emergencyRefund(MATCHID, playerId);
 
         hasClaimedOrRefunded[actor] = true;
     }
 
     function withdrawWinnings(uint256 actorIdx) public {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
-        string memory playerId = (actorIdx % 2 == 0) ? PLAYER_WIN : PLAYER_LOSE;
+        string memory playerId = (actorIdx % 2 == 0) ? WINNING_PLAYERID : LOSING_PLAYERID;
 
         uint256 balanceBefore = actor.balance;
 
@@ -210,7 +207,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     }
 
     function ghost_factionTotalsNeverNegative() public view returns (bool) {
-        FragBoxBetting.MatchBetView memory mb = betting.getMatchBet(betting.getKey(MATCH_ID));
+        FragBoxBetting.MatchBetView memory mb = betting.getMatchBet(betting.getKey(MATCHID));
         return mb.factionTotals[1] + mb.factionTotals[2] + mb.factionTotals[3] >= 0;
     }
 }

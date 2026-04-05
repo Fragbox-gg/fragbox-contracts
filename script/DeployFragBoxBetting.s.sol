@@ -12,7 +12,7 @@ contract DeployFragBoxBetting is Script {
     function run() external returns (FragBoxBetting, address) {
         HelperConfig helperConfig = new HelperConfig();
         (
-            address ethUsdPriceFeed,
+            address usdcAddress,
             address chainLinkFunctionsRouter,
             bytes32 donId,
             uint64 subscriptionId,
@@ -28,7 +28,7 @@ contract DeployFragBoxBetting is Script {
         vm.startBroadcast(sub.owner);
 
         FragBoxBetting fragBoxBetting =
-            new FragBoxBetting(ethUsdPriceFeed, chainLinkFunctionsRouter, donId, subscriptionId, getRoster, getStatus);
+            new FragBoxBetting(usdcAddress, chainLinkFunctionsRouter, donId, subscriptionId, getRoster, getStatus);
 
         fragBoxBetting.updateDonSecrets(0, donHostedSecretsVersion);
 
