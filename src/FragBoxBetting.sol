@@ -12,7 +12,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @title FragBoxBetting
  * @author Patrick Seeman (https://github.com/LightPat)
  * @notice Core escrow contract for the Fragbox.gg CS2 Faceit PUG betting platform.
- * 
+ *
  * Players deposit USDC on **their own faction** in verified Faceit matches (1v1, 5v5, etc.).
  * Match-fixing is prevented by:
  *   - Wallet registration (Faceit OAuth → wallet link)
