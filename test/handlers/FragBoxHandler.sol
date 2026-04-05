@@ -12,8 +12,6 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
     address[] public actors;
 
-    string[3] public factions = ["faction1", "faction2", "draw"];
-
     /* ----------------------------- GHOST VARIABLES ---------------------------- */
     uint256 public ghost_totalDeposited; // ALL ETH that ever entered the contract
     uint256 public ghost_totalWithdrawnUsers; // winnings + in-flight withdrawals
@@ -99,13 +97,13 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         } else if (needsRoster) {
             vm.warp(block.timestamp + 1 hours + 1 minutes);
 
-            uint256 balanceBefore = actor.balance;
+            uint256 balanceBefore = betting.getUsdc().balanceOf(actor);
 
             vm.prank(actor);
             betting.withdrawBetAmountsInRosterValidationFlight();
 
-            console.log("withdrew", (actor.balance - balanceBefore));
-            ghost_totalWithdrawnUsers += (actor.balance - balanceBefore);
+            console.log("withdrew", (betting.getUsdc().balanceOf(actor) - balanceBefore));
+            ghost_totalWithdrawnUsers += (betting.getUsdc().balanceOf(actor) - balanceBefore);
         }
     }
 
@@ -154,31 +152,31 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
         string memory playerId = (actorIdx % 2 == 0) ? WINNING_PLAYERID : LOSING_PLAYERID;
 
-        uint256 balanceBefore = actor.balance;
+        uint256 balanceBefore = betting.getUsdc().balanceOf(actor);
 
         vm.prank(actor);
         betting.withdraw(playerId);
 
-        ghost_totalWithdrawnUsers += (actor.balance - balanceBefore);
+        ghost_totalWithdrawnUsers += (betting.getUsdc().balanceOf(actor) - balanceBefore);
     }
 
     function withdrawInFlight(uint256 actorIdx) public {
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
-        uint256 balanceBefore = actor.balance;
+        uint256 balanceBefore = betting.getUsdc().balanceOf(actor);
 
         vm.prank(actor);
         betting.withdrawBetAmountsInRosterValidationFlight();
 
-        ghost_totalWithdrawnUsers += (actor.balance - balanceBefore);
+        ghost_totalWithdrawnUsers += (betting.getUsdc().balanceOf(actor) - balanceBefore);
     }
 
     function ownerWithdrawFees() public {
-        uint256 contractBalanceBefore = address(betting).balance;
+        uint256 contractBalanceBefore = betting.getUsdc().balanceOf(address(betting));
 
         vm.prank(betting.owner());
         betting.withdrawOwnerFees();
 
-        uint256 withdrawn = contractBalanceBefore - address(betting).balance;
+        uint256 withdrawn = contractBalanceBefore - betting.getUsdc().balanceOf(address(betting));
         ghost_totalWithdrawnOwner += withdrawn;
     }
 

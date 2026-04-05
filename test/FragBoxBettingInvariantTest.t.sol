@@ -10,10 +10,6 @@ contract FragBoxBettingInvariantTest is Test {
     FragBoxBetting public fragBoxBetting;
     FragBoxHandler public handler;
 
-    string constant MATCH_ID = "1-a536dd90-4df3-42df-be6e-d158177fdef2";
-    string constant PLAYER_WIN = "94f98244-169d-478a-a5dd-21dde2e649ca";
-    string constant PLAYER_LOSE = "92f1450e-182b-41db-8f31-53079df20c73";
-
     function setUp() public {
         DeployFragBoxBetting deployer = new DeployFragBoxBetting();
         (fragBoxBetting,) = deployer.run();

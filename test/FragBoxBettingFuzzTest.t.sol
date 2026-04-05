@@ -15,10 +15,10 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
     address public USER2;
     address public USER3;
     address public USER4;
-    uint256 constant MIN_SEND_VALUE = 5_000_000; // $5
-    uint256 constant MAX_SEND_VALUE = 10_000_000; // $10
+    uint256 constant MIN_SEND_VALUE = 5e6; // $5
+    uint256 constant MAX_SEND_VALUE = 10e6; // $10
     uint8 constant DEFAULT_TIER_ID = 1;
-    uint256 constant STARTING_USDC_BALANCE = 50_000_000; // $50
+    uint256 constant STARTING_USDC_BALANCE = 50e6; // $50
 
     FragBoxBetting.Faction constant LOSING_FACTION = FragBoxBetting.Faction.Faction2;
 
