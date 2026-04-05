@@ -49,7 +49,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
             betting.registerPlayerWallet(playerId, actor);
         }
     }
-    
+
     uint256 constant MIN_SEND_VALUE = 1e6; // $1
     uint256 constant MAX_SEND_VALUE = 1000e6; // $1000
 
