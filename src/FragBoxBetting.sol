@@ -142,8 +142,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event InFlightWithdrawalTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
     event HouseFeePercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
     event MinStatusUpdateFeeUpdated(uint256 oldFee, uint256 newFee);
-    event MinBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
-    event MaxBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
     event StatusUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event RosterUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event DonSecretsUpdated();
