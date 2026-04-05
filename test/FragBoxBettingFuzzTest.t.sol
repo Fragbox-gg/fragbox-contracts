@@ -9,7 +9,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract FragBoxBettingFuzzTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
-    address chainLinkFunctionsRouter;
 
     address public USER;
     address public USER2;

@@ -13,7 +13,7 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
     address[] public actors;
 
     /* ----------------------------- GHOST VARIABLES ---------------------------- */
-    uint256 public ghost_totalDeposited; // ALL ETH that ever entered the contract
+    uint256 public ghost_totalDeposited; // ALL USDC that ever entered the contract
     uint256 public ghost_totalWithdrawnUsers; // winnings + in-flight withdrawals
     uint256 public ghost_totalWithdrawnOwner; // ownerFees withdrawals
 
@@ -49,10 +49,13 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
             betting.registerPlayerWallet(playerId, actor);
         }
     }
+    
+    uint256 constant MIN_SEND_VALUE = 1e6; // $1
+    uint256 constant MAX_SEND_VALUE = 1000e6; // $1000
 
     /* ---------------------------- FUZZABLE ACTIONS ---------------------------- */
     function deposit(uint256 actorIdx, uint256 factionIdx, uint256 amount) public {
-        amount = bound(amount, 0.01 ether, 3 ether);
+        amount = bound(amount, MIN_SEND_VALUE, MAX_SEND_VALUE);
 
         address actor = actors[bound(actorIdx, 0, actors.length - 1)];
         string memory playerId = factionIdx % 2 == 0 ? WINNING_PLAYERID : LOSING_PLAYERID;

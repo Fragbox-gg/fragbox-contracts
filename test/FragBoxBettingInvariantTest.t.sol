@@ -30,13 +30,13 @@ contract FragBoxBettingInvariantTest is Test {
         assertTrue(handler.ghost_totalDeposited() >= 0);
     }
 
-    function invariant_totalEthConservation() public view {
+    function invariant_totalUsdcConservation() public view {
         uint256 totalWithdrawn = handler.ghost_totalWithdrawnUsers() + handler.ghost_totalWithdrawnOwner();
 
         assertEq(
             fragBoxBetting.getUsdc().balanceOf(address(fragBoxBetting)) + totalWithdrawn,
             handler.ghost_totalDeposited(),
-            "ETH conservation violated: total input != contract balance + all withdrawals"
+            "Usdc conservation violated: total input != contract balance + all withdrawals"
         );
     }
 

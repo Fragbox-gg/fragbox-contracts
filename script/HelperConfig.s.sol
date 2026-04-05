@@ -7,9 +7,6 @@ import {ChainChecker} from "../src/ChainChecker.sol";
 contract HelperConfig is Script, ChainChecker {
     NetworkConfig public activeNetworkConfig;
 
-    uint8 public constant DECIMALS = 8;
-    int256 public constant ETH_USD_PRICE = 2000e8;
-
     struct NetworkConfig {
         address usdcAddress;
     }
