@@ -6,7 +6,6 @@ import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 
 contract SimulateOracles is Test {
     FragBoxBetting internal fragBoxBettingContract;
-    address internal chainLinkFunctionsRouterAddress;
 
     // ===================================================================
     // PROCESSED RESPONSES (EXACT output of your Chainlink Functions JS templates)
@@ -34,9 +33,11 @@ contract SimulateOracles is Test {
     string constant LOSING_PLAYERID = "92f1450e-182b-41db-8f31-53079df20c73";
     string constant LOSING_PLAYERID2 = "0a3fe9a7-b60f-4746-b30d-57bea3414077";
 
-    function setUpSimulation(address chainLinkFunctionsRouter, FragBoxBetting fragBoxBetting) internal {
+    FragBoxBetting.Faction constant WINNING_FACTION = FragBoxBetting.Faction.Faction1;
+    FragBoxBetting.Faction constant LOSING_FACTION = FragBoxBetting.Faction.Faction2;
+
+    function setUpSimulation(FragBoxBetting fragBoxBetting) internal {
         fragBoxBettingContract = fragBoxBetting;
-        chainLinkFunctionsRouterAddress = chainLinkFunctionsRouter;
 
         string memory mode = vm.envOr("FACEIT_TEST_MODE", string("offline"));
 
@@ -69,35 +70,6 @@ contract SimulateOracles is Test {
     event RosterRequestSent(
         bytes32 indexed requestId, bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId
     );
-
-    /* --------------------------- CAPTURE REQUEST ID --------------------------- */
-    function _startRequestCapture() internal {
-        vm.recordLogs();
-    }
-
-    function _captureRequestId() internal view returns (bytes32) {
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].topics[0] == StatusRequestSent.selector || logs[i].topics[0] == RosterRequestSent.selector) {
-                return logs[i].topics[1];
-            }
-        }
-        revert("RequestSent event not found");
-    }
-
-    /* -------------------- SIMULATE CHAINLINK FUNCTIONS DON -------------------- */
-    function _simulateFulfill(bytes32 requestId, string memory jsonResponse, string memory err) internal {
-        _simulateFulfill(requestId, bytes(jsonResponse), bytes(err));
-    }
-
-    function _simulateFulfill(bytes32 requestId, string memory jsonResponse, bytes memory err) internal {
-        _simulateFulfill(requestId, bytes(jsonResponse), err);
-    }
-
-    function _simulateFulfill(bytes32 requestId, bytes memory jsonResponse, bytes memory err) internal {
-        vm.prank(chainLinkFunctionsRouterAddress);
-        fragBoxBettingContract.handleOracleFulfillment(requestId, jsonResponse, err);
-    }
 
     /// @notice Runs your exact JS (offline or real)
     function _getProcessedResponse(
