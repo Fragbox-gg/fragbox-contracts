@@ -5,18 +5,23 @@ import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/Fu
 import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {OracleLib} from "./libraries/OracleLib.sol";
-import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
+    using SafeERC20 for IERC20Metadata;
+    using FunctionsRequest for FunctionsRequest.Request;
+
     /* -------------------------------------------------------------------------- */
     /*                                   ERRORS                                   */
     /* -------------------------------------------------------------------------- */
     error FragBoxBetting__InvalidWallet();
+    error FragBoxBetting__TierMismatch();
+    error FragBoxBetting__TierNotActive();
+    error FragBoxBetting__MatchStatusDoesNotAllowBets();
+    error FragBoxBetting__PlayerAlreadyBetOnMatch();
     error FragBoxBetting__MatchStatusIsInvalid();
     error FragBoxBetting__MatchAlreadyFinished();
     error FragBoxBetting__MatchNotFinished();
@@ -25,7 +30,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__BetTooSmall();
     error FragBoxBetting__BetTooLarge();
     error FragBoxBetting__RosterAlreadyRequested();
-    error FragBoxBetting__MatchIsOngoing();
     error FragBoxBetting__SecretsNotSet();
     error FragBoxBetting__StatusUpdateTooSoon();
     error FragBoxBetting__RosterUpdateTooSoon();
@@ -33,12 +37,9 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     error FragBoxBetting__NoBetForPlayer();
     error FragBoxBetting__InsufficientFundsForWithdrawal();
     error FragBoxBetting__WinnerUnknown();
-    error FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount();
-    error FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount();
+    error FragBoxBetting__TierIdMustBeGreaterThanZero();
+    error FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
     error FragBoxBetting__LosingFactionCannotClaim(Faction faction);
-
-    using FunctionsRequest for FunctionsRequest.Request;
-    using OracleLib for AggregatorV3Interface;
 
     /* -------------------------------------------------------------------------- */
     /*                                    ENUMS                                   */
@@ -72,6 +73,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         MatchStatus matchStatus;
         uint256[4] factionTotals; // 0 = Unknown, 1 = Faction1 total, 2 = Faction2, 3 = Draw
         uint256 lastStatusUpdate;
+        uint8 tierId;
         bytes32 statusRequestId;
 
         mapping(address wallet => mapping(bytes32 playerKey => uint256 betAmount)) walletToPlayerIdToBet;
@@ -85,6 +87,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         MatchStatus matchStatus;
         uint256[4] factionTotals;
         uint256 lastStatusUpdate;
+        uint8 tierId;
         bytes32 statusRequestId;
     }
 
@@ -96,16 +99,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         address wallet;
     }
 
+    struct Tier {
+        uint256 minBetAmount;
+        uint256 maxBetAmount;
+        bool active;
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                                   EVENTS                                   */
     /* -------------------------------------------------------------------------- */
-    event BetPlaced(bytes32 indexed matchKey, string matchId, address indexed better, uint256 amount, string playerId);
-    event RosterUpdated(bytes32 indexed matchKey, bytes32 indexed playerKey, Faction playerFaction);
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
-    event RequestFulfilled(
-        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
+    event BetPlaced(
+        bytes32 indexed matchKey, string matchId, address indexed better, uint256 amount, string playerId, uint8 tierId
     );
-    event RequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
     event MatchClaimed(
         bytes32 indexed matchKey,
         string matchId,
@@ -119,11 +124,24 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     );
     event WinningsWithdrawn(bytes32 indexed playerKey, string playerId, address indexed wallet, uint256 amount);
     event PlayerRegistered(bytes32 indexed playerId, address indexed wallet, string playerIdStr);
-    /* ------------------------- Admin / Config Changes ------------------------- */
+    /* --------------------------- CHAINLINK FUNCTIONS -------------------------- */
+    event StatusRequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
+    event RosterRequestSent(
+        bytes32 indexed requestId, bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId
+    );
+    event StatusRequestFulfilled(
+        bytes32 indexed requestId, bytes32 indexed matchKey, MatchStatus status, Faction winnerFaction
+    );
+    event RosterRequestFulfilled(bytes32 indexed matchKey, bytes32 indexed playerKey, Faction playerFaction);
+    event StatusRequestError(bytes32 indexed requestId, bytes32 indexed matchKey, string error);
+    event RosterRequestError(
+        bytes32 indexed requestId, bytes32 indexed matchKey, bytes32 indexed playerKey, string error
+    );
+    /* ------------------------- ADMIN / CONFIG CHANGES ------------------------- */
     event EmergencyRefundTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
     event InFlightWithdrawalTimeoutUpdated(uint256 oldTimeout, uint256 newTimeout);
     event HouseFeePercentageUpdated(uint256 oldPercentage, uint256 newPercentage);
-    event MinStatusUpdateFeeUsdUpdated(uint256 oldFee, uint256 newFee);
+    event MinStatusUpdateFeeUpdated(uint256 oldFee, uint256 newFee);
     event MinBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
     event MaxBetAmountUsdUpdated(uint256 oldAmount, uint256 newAmount);
     event StatusUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
@@ -131,27 +149,28 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     event DonSecretsUpdated();
     event OwnerFeesWithdrawn(address indexed wallet, uint256 amountWithdrawn);
     event InFlightFundsWithdrawn(address indexed wallet, uint256 amountWithdrawn);
+    event TierUpdated(uint8 indexed tierId, uint256 minBetAmount, uint256 maxBetAmount);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
     /* -------------------------------------------------------------------------- */
     uint32 private constant CALLBACK_GAS_LIMIT = 300_000;
-    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
-    uint256 private constant PRECISION = 1e18;
 
     /* -------------------------------------------------------------------------- */
     /*                             IMMUTABLE VARIABLES                            */
     /* -------------------------------------------------------------------------- */
-    AggregatorV3Interface private immutable I_ETHUSDPRICEFEED;
+    IERC20Metadata private immutable I_USDC;
     address private immutable I_CHAINLINKFUNCTIONSROUTER;
     bytes32 private immutable I_DONID;
     uint64 private immutable I_SUBSCRIPTIONID;
+    uint8 private immutable I_USDC_DECIMALS;
     string private I_GETROSTER;
     string private I_GETSTATUS;
 
     /* -------------------------------------------------------------------------- */
     /*                              STORAGE VARIABLES                             */
     /* -------------------------------------------------------------------------- */
+    mapping(uint8 tierId => Tier) private tiers;
     mapping(bytes32 matchKey => MatchBet matchBet) private matchBets;
     mapping(bytes32 playerId => address registeredWallet) private playerIdToRegisteredWallet;
     mapping(bytes32 requestId => RequestInfo requestInfo) private requestIdToInfo;
@@ -163,30 +182,13 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint64 private donHostedSecretsVersion;
     uint256 private ownerFeesCollected;
 
-    uint256 private emergencyRefundTimeout = 24 hours;
+    /* --------------------------- OWNER / CONFIG VARS -------------------------- */
+    uint256 private emergencyRefundTimeout = 4 hours;
     uint256 private inFlightWithdrawalTimeout = 1 hours;
     uint256 private houseFeePercentage = 1; // 1 = 1%
-    uint256 private minStatusUpdateFeeUsd = 20 ether;
-    uint256 private minBetAmountUsd = 3 ether;
-    uint256 private maxBetAmountUsd = 3000 ether;
+    uint256 private minStatusUpdateFee = 20_000_000; // $20
     uint256 private statusUpdateCooldown = 5 minutes;
     uint256 private rosterUpdateCooldown = 10 minutes;
-
-    constructor(
-        address ethUsdPriceFeed,
-        address chainLinkFunctionsRouter,
-        bytes32 donId,
-        uint64 subscriptionId,
-        string memory getRoster,
-        string memory getStatus
-    ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
-        I_ETHUSDPRICEFEED = AggregatorV3Interface(ethUsdPriceFeed);
-        I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
-        I_DONID = donId;
-        I_SUBSCRIPTIONID = subscriptionId;
-        I_GETROSTER = getRoster;
-        I_GETSTATUS = getStatus;
-    }
 
     /* -------------------------------------------------------------------------- */
     /*                                  MODIFIERS                                 */
@@ -200,21 +202,18 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     /*                             INTERNAL FUNCTIONS                             */
     /* -------------------------------------------------------------------------- */
     /**
-     * Checks if the caller has paid the required fee or is the owner
-     * @param feeAmount The minimum fee necessary for the function (in USD with 18 decimals, e.g. 20 * 1e18 for $20)
+     * @dev Non-owners must pay the fee in USDC (transferred to the contract). Owner calls are free
+     * @param feeAmount The minimum fee necessary for the function in USDC
      */
     function _costsFeeOrOwner(uint256 feeAmount) internal {
         if (msg.sender != owner()) {
-            // Require some ETH is sent (basic protection)
-            if (msg.value == 0) revert FragBoxBetting__NonOwnerFeeRequired();
+            // Require some USDC is sent (basic protection)
+            if (I_USDC.balanceOf(msg.sender) < feeAmount) revert FragBoxBetting__NonOwnerFeeRequired();
 
-            uint256 usdValueWei = getUsdValueOfEth(msg.value);
-            if (usdValueWei < feeAmount) {
-                revert FragBoxBetting__NonOwnerFeeRequired();
-            }
+            I_USDC.safeTransferFrom(msg.sender, address(this), feeAmount);
 
             // Accumulate the fee (you could also send to owner instantly, but accumulating is fine)
-            ownerFeesCollected += msg.value;
+            ownerFeesCollected += feeAmount;
         }
         // No refund logic here — we accept exact or overpayment (common pattern)
     }
@@ -295,11 +294,51 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         requestIdToInfo[requestId] = RequestInfo({
             requestType: RequestType.Roster,
             matchKey: matchKey,
-            playerKey: _getKey(playerId),
+            playerKey: playerKey,
             betAmount: betAmount,
             wallet: msg.sender
         });
-        emit RequestSent(requestId, matchKey, matchIdStr);
+        emit RosterRequestSent(requestId, matchKey, matchIdStr, playerKey, playerId);
+    }
+
+    /**
+     * Creates or modifies an existing tier
+     * @param tierId The id of the tier
+     * @param minBetAmount The min bet amount of the tier in USD
+     * @param maxBetAmount The max bet amount of the tier in USD
+     */
+    function _setTier(uint8 tierId, uint256 minBetAmount, uint256 maxBetAmount) internal {
+        if (tierId == 0) {
+            revert FragBoxBetting__TierIdMustBeGreaterThanZero();
+        }
+
+        if (minBetAmount >= maxBetAmount) {
+            revert FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
+        }
+
+        tiers[tierId] = Tier({minBetAmount: toUsdc(minBetAmount), maxBetAmount: toUsdc(maxBetAmount), active: true});
+    }
+
+    constructor(
+        address usdcAddress,
+        address chainLinkFunctionsRouter,
+        bytes32 donId,
+        uint64 subscriptionId,
+        string memory getRoster,
+        string memory getStatus
+    ) Ownable(msg.sender) FunctionsClient(chainLinkFunctionsRouter) {
+        I_USDC = IERC20Metadata(usdcAddress);
+        I_CHAINLINKFUNCTIONSROUTER = chainLinkFunctionsRouter;
+        I_DONID = donId;
+        I_SUBSCRIPTIONID = subscriptionId;
+        I_USDC_DECIMALS = I_USDC.decimals();
+        I_GETROSTER = getRoster;
+        I_GETSTATUS = getStatus;
+
+        // Default tiers (low / mid / high stakes) – owner can change after deployment
+        _setTier(1, 5, 10); // $5 – $10
+        _setTier(2, 10, 20); // $10 – $20
+        _setTier(3, 50, 100); // $50 – $100
     }
 
     /* -------------------------------------------------------------------------- */
@@ -333,12 +372,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr)
-        external
-        payable
-        whenNotPaused
-        costsFeeOrOwner(minStatusUpdateFeeUsd)
-    {
+    function updateMatchStatus(string calldata matchIdStr) external whenNotPaused costsFeeOrOwner(minStatusUpdateFee) {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -366,7 +400,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         requestIdToInfo[requestId] = RequestInfo({
             requestType: RequestType.Status, matchKey: matchKey, playerKey: bytes32(0), betAmount: 0, wallet: msg.sender
         });
-        emit RequestSent(requestId, matchKey, matchIdStr);
+        emit StatusRequestSent(requestId, matchKey, matchIdStr);
     }
 
     /**
@@ -379,23 +413,28 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         RequestInfo memory requestInfo = requestIdToInfo[requestId];
         delete requestIdToInfo[requestId];
         bytes32 matchKey = requestInfo.matchKey;
+        RequestType requestType = requestInfo.requestType;
 
         if (err.length > 0) {
-            emit RequestError(requestId, matchKey, string(err));
+            if (requestType == RequestType.Status) {
+                emit StatusRequestError(requestId, matchKey, string(err));
+            } else if (requestType == RequestType.Roster) {
+                emit RosterRequestError(requestId, matchKey, requestInfo.playerKey, string(err));
+            }
             return;
         }
 
         // Request ownership validation (prevents stale data corruption)
-        if (requestInfo.requestType == RequestType.Status) {
+        if (requestType == RequestType.Status) {
             MatchBet storage mb = matchBets[matchKey];
 
             if (mb.statusRequestId != requestId) {
-                emit RequestError(requestId, matchKey, "Stale Status Request Id");
+                emit StatusRequestError(requestId, matchKey, "Stale Status Request Id");
                 return;
             }
 
             if (response.length != 2) {
-                emit RequestError(requestId, matchKey, "Invalid Status Response");
+                emit StatusRequestError(requestId, matchKey, "Invalid Status Response");
                 return;
             }
 
@@ -411,7 +450,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                         && newMatchStatus != MatchStatus.Ready
                 ) {
                     mb.matchStatus = MatchStatus.Invalid;
-                    emit RequestFulfilled(requestId, matchKey, MatchStatus.Invalid, Faction.Unknown);
+                    emit StatusRequestFulfilled(requestId, matchKey, MatchStatus.Invalid, Faction.Unknown);
                     return;
                 }
             }
@@ -423,18 +462,19 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
                 mb.winnerFaction = winnerFaction;
             }
 
-            emit RequestFulfilled(requestId, matchKey, newMatchStatus, winnerFaction);
-        } else if (requestInfo.requestType == RequestType.Roster) {
+            emit StatusRequestFulfilled(requestId, matchKey, newMatchStatus, winnerFaction);
+        } else if (requestType == RequestType.Roster) {
             address requestor = requestInfo.wallet;
             uint256 betAmount = requestInfo.betAmount;
+            bytes32 playerKey = requestInfo.playerKey;
 
             if (betAmountsInRosterValidationFlight[requestor] < betAmount) {
-                emit RequestError(requestId, matchKey, "Bet was withdrawn during roster validation");
+                emit RosterRequestError(requestId, matchKey, playerKey, "Bet was withdrawn during roster validation");
                 return;
             }
 
             if (response.length != 1) {
-                emit RequestError(requestId, matchKey, "Invalid Roster Response");
+                emit RosterRequestError(requestId, matchKey, playerKey, "Invalid Roster Response");
                 return;
             }
 
@@ -442,12 +482,15 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             Faction playerFaction = Faction(fId);
 
             if (playerFaction != Faction.Faction1 && playerFaction != Faction.Faction2) {
-                emit RequestError(requestId, matchKey, "Invalid player");
+                emit RosterRequestError(requestId, matchKey, playerKey, "Invalid player");
                 return;
             }
 
             MatchBet storage mb = matchBets[matchKey];
-            bytes32 playerKey = requestInfo.playerKey;
+
+            if (mb.playerToFaction[playerKey] != Faction.Unknown) {
+                emit RosterRequestError(requestId, matchKey, playerKey, "Faction already assigned");
+            }
 
             mb.playerToFaction[playerKey] = playerFaction;
 
@@ -457,7 +500,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             // Update totals
             mb.factionTotals[fId] += betAmount;
 
-            emit RosterUpdated(matchKey, playerKey, playerFaction);
+            emit RosterRequestFulfilled(matchKey, playerKey, playerFaction);
         }
     }
 
@@ -465,28 +508,32 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Place Bet on an ongoing faceit match that you are a part of. This is where players pay their deposit fee so that we don't have to calculate fees during payout/resolution
      * @param matchIdStr The id of the match the player is betting on
      * @param playerIdStr The id of the player who is placing the bet
+     * @param amount The amount of the bet (in wei)
+     * @param tierId The tier id for the bet
      */
-    function deposit(string calldata matchIdStr, string calldata playerIdStr)
+    function deposit(string calldata matchIdStr, string calldata playerIdStr, uint256 amount, uint8 tierId)
         external
-        payable
         nonReentrant
         whenNotPaused
     {
-        // The point of this is just to prevent anyone from sending an insanely large amount of money or an insanely small amount of money
-        // We don't care if someone bets a large amount of money on a match, but we want to prevent mistakes (like someone sending 1000x the intended bet amount) and also prevent dust bets that would cause issues with the pro-rata calculations and leftover dust in the contract after payouts
-        uint256 usdValueOfEth = getUsdValueOfEth(msg.value);
-        if (usdValueOfEth < minBetAmountUsd) revert FragBoxBetting__BetTooSmall();
-        if (usdValueOfEth > maxBetAmountUsd) revert FragBoxBetting__BetTooLarge();
+        // TierId parameter (on-chain enforcement)
+        Tier memory tier = tiers[tierId];
+        if (!tier.active) revert FragBoxBetting__TierNotActive();
+        if (amount < tier.minBetAmount) revert FragBoxBetting__BetTooSmall();
+        if (amount > tier.maxBetAmount) revert FragBoxBetting__BetTooLarge();
 
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
-        if (mb.matchStatus == MatchStatus.Finished) {
-            revert FragBoxBetting__MatchAlreadyFinished();
+        // Associate match with tier (locked on first deposit)
+        if (mb.tierId == 0) {
+            mb.tierId = tierId;
+        } else if (mb.tierId != tierId) {
+            revert FragBoxBetting__TierMismatch();
         }
 
-        if (mb.matchStatus == MatchStatus.Ongoing) {
-            revert FragBoxBetting__MatchIsOngoing();
+        if (mb.matchStatus == MatchStatus.Ongoing || mb.matchStatus == MatchStatus.Finished) {
+            revert FragBoxBetting__MatchStatusDoesNotAllowBets();
         }
 
         if (mb.matchStatus == MatchStatus.Invalid) {
@@ -500,12 +547,14 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         }
 
         // Calculate house fee and actual bet amount
-        uint256 fee = calculateDepositFee(msg.value);
-        uint256 betAmount = msg.value - fee;
+        uint256 fee = calculateDepositFee(amount);
+        uint256 betAmount = amount - fee;
 
-        if (betAmount <= 0) {
+        if (betAmount == 0) {
             revert FragBoxBetting__BetTooSmall();
         }
+
+        I_USDC.safeTransferFrom(msg.sender, address(this), amount);
 
         // Send fee to owner
         ownerFeesCollected += fee;
@@ -517,13 +566,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             walletToLastDepositTime[msg.sender] = block.timestamp;
             updateMatchRoster(matchIdStr, playerIdStr, betAmount);
         } else {
-            mb.walletToPlayerIdToBet[msg.sender][playerKey] += betAmount;
-
-            // Update totals
-            mb.factionTotals[uint8(faction)] += betAmount;
+            revert FragBoxBetting__PlayerAlreadyBetOnMatch();
         }
 
-        emit BetPlaced(matchKey, matchIdStr, msg.sender, betAmount, playerIdStr);
+        emit BetPlaced(matchKey, matchIdStr, msg.sender, amount, playerIdStr, tierId);
     }
 
     /**
@@ -650,7 +696,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
         }
 
-        Address.sendValue(payable(msg.sender), winningsAmount);
+        I_USDC.safeTransfer(msg.sender, winningsAmount);
         playerToWinnings[msg.sender][playerKey] = 0;
         emit WinningsWithdrawn(playerKey, playerId, msg.sender, winningsAmount);
     }
@@ -660,7 +706,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      */
     function withdrawOwnerFees() external onlyOwner nonReentrant whenNotPaused {
         uint256 amount = ownerFeesCollected;
-        Address.sendValue(payable(owner()), amount);
+        I_USDC.safeTransfer(owner(), amount);
         ownerFeesCollected = 0;
         emit OwnerFeesWithdrawn(owner(), amount);
     }
@@ -680,7 +726,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
         }
 
-        Address.sendValue(payable(msg.sender), withdrawalAmount);
+        I_USDC.safeTransfer(msg.sender, withdrawalAmount);
         betAmountsInRosterValidationFlight[msg.sender] = 0;
         emit InFlightFundsWithdrawn(msg.sender, withdrawalAmount);
     }
@@ -702,7 +748,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             revert FragBoxBetting__InsufficientFundsForWithdrawal();
         }
 
-        Address.sendValue(payable(withdrawalAddress), withdrawalAmount);
+        I_USDC.safeTransfer(withdrawalAddress, withdrawalAmount);
         betAmountsInRosterValidationFlight[withdrawalAddress] -= withdrawalAmount;
         emit InFlightFundsWithdrawn(withdrawalAddress, withdrawalAmount);
     }
@@ -748,35 +794,11 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
 
     /**
      * Sets the min fee for status updates in USD (when not the owner)
-     * @param newMinStatusUpdateFeeUsd The new min fee in USD wei
+     * @param newMinStatusUpdateFee The new min fee in USD wei
      */
-    function setMinStatusUpdateFeeUsd(uint256 newMinStatusUpdateFeeUsd) external onlyOwner {
-        emit MinStatusUpdateFeeUsdUpdated(minStatusUpdateFeeUsd, newMinStatusUpdateFeeUsd);
-        minStatusUpdateFeeUsd = newMinStatusUpdateFeeUsd;
-    }
-
-    /**
-     * Sets the min bet amount for deposits in USD
-     * @param newMinBetAmountUsd The min bet amount in USD wei
-     */
-    function setMinBetAmountUsd(uint256 newMinBetAmountUsd) external onlyOwner {
-        if (newMinBetAmountUsd >= maxBetAmountUsd) {
-            revert FragBoxBetting__MinBetAmountIsGreaterThanMaxBetAmount();
-        }
-        emit MinBetAmountUsdUpdated(minBetAmountUsd, newMinBetAmountUsd);
-        minBetAmountUsd = newMinBetAmountUsd;
-    }
-
-    /**
-     * Sets the max bet amount for deposits in USD
-     * @param newMaxBetAmountUsd The max bet amount in USD wei
-     */
-    function setMaxBetAmountUsd(uint256 newMaxBetAmountUsd) external onlyOwner {
-        if (newMaxBetAmountUsd <= minBetAmountUsd) {
-            revert FragBoxBetting__MaxBetAmountIsLessThanMinBetAmount();
-        }
-        emit MaxBetAmountUsdUpdated(maxBetAmountUsd, newMaxBetAmountUsd);
-        maxBetAmountUsd = newMaxBetAmountUsd;
+    function setMinStatusUpdateFeeUsd(uint256 newMinStatusUpdateFee) external onlyOwner {
+        emit MinStatusUpdateFeeUpdated(minStatusUpdateFee, newMinStatusUpdateFee);
+        minStatusUpdateFee = newMinStatusUpdateFee;
     }
 
     /**
@@ -797,25 +819,52 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
         rosterUpdateCooldown = newRosterUpdateCooldown;
     }
 
+    /**
+     * Creates or modifies an existing tier
+     * @param tierId The id of the tier
+     * @param minBetAmount The min bet amount of the tier in USD
+     * @param maxBetAmount The max bet amount of the tier in USD
+     */
+    function setTier(uint8 tierId, uint256 minBetAmount, uint256 maxBetAmount) external onlyOwner {
+        _setTier(tierId, minBetAmount, maxBetAmount);
+        emit TierUpdated(tierId, minBetAmount, maxBetAmount);
+    }
+
+    /**
+     * Activate or deactivate a tier
+     * @param tierId The id of the tier
+     * @param active The state to set
+     */
+    function toggleTier(uint8 tierId, bool active) external onlyOwner {
+        tiers[tierId].active = active;
+        emit TierUpdated(tierId, tiers[tierId].minBetAmount, tiers[tierId].maxBetAmount);
+    }
+
     /* -------------------------------------------------------------------------- */
     /*                                   GETTERS                                  */
     /* -------------------------------------------------------------------------- */
     /**
-     * Gets the price of ETH in USD
-     * @return The price of ETH in USD wei
+     * @return The address of the USDC contract
      */
-    function getEthUsdPrice() public view returns (uint256) {
-        (, int256 price,,,) = I_ETHUSDPRICEFEED.staleCheckLatestRoundData();
-        return SafeCast.toUint256(price) * ADDITIONAL_FEED_PRECISION;
+    function getUsdc() external view returns (IERC20Metadata) {
+        return I_USDC;
     }
 
     /**
-     * Converts an amount of ETH to its equivalent $ amount using chainlink price feed oracles
-     * @param amount The amount of ETH in wei
-     * @return uint256 The $ amount equivalent of input parameter amount
+     * @return The count of decimals associated with the USDC contract
      */
-    function getUsdValueOfEth(uint256 amount) public view returns (uint256) {
-        return (getEthUsdPrice() * amount) / PRECISION;
+    function getUsdcDecimals() external view returns (uint8) {
+        return I_USDC_DECIMALS;
+    }
+
+    /**
+     * Scales a value by the number of decimals that USDC uses
+     * @notice Converts a human-readable USDC amount into the raw token amount (scaled by 6 decimals)
+     * @param value The amount in "normal" USDC units (e.g. 5 means 5.000000 USDC)
+     * @return The scaled value
+     */
+    function toUsdc(uint256 value) public view returns (uint256) {
+        return value * (10 ** I_USDC_DECIMALS);
     }
 
     /**
@@ -846,6 +895,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
             winnerFaction: mb.winnerFaction,
             statusRequestId: mb.statusRequestId,
             lastStatusUpdate: mb.lastStatusUpdate,
+            tierId: mb.tierId,
             matchStatus: mb.matchStatus
         });
     }
@@ -910,18 +960,10 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     }
 
     /**
-     * Gets the minimum total deposit amount per match
-     * @return The amount in USD wei
+     * @param tierId The id associated with the tier you want to get
+     * @return The tier associated with the id
      */
-    function getMinBetAmountUsd() external view returns (uint256) {
-        return minBetAmountUsd;
-    }
-
-    /**
-     * Gets the maximum total deposit amount per match
-     * @return The amount in USD wei
-     */
-    function getMaxBetAmountUsd() external view returns (uint256) {
-        return maxBetAmountUsd;
+    function getTier(uint8 tierId) external view returns (Tier memory) {
+        return tiers[tierId];
     }
 }

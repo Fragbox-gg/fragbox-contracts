@@ -15,7 +15,10 @@ contract SimulateOracles is Test {
     // They are the tiny {type, f1, f2, status} or {type, status, winner} objects
     // that your ROSTER_SOURCE_TEMPLATE / STATUS_SOURCE_TEMPLATE actually return.
     string internal PROCESSED_ROSTER_READY_WINNING_PLAYER;
+    string internal PROCESSED_ROSTER_READY_WINNING_PLAYER_2;
+    string internal PROCESSED_ROSTER_READY_WINNING_PLAYER_3;
     string internal PROCESSED_ROSTER_READY_LOSING_PLAYER;
+    string internal PROCESSED_ROSTER_READY_LOSING_PLAYER_2;
     string internal PROCESSED_STATUS_VOTING;
     string internal PROCESSED_STATUS_READY;
     string internal PROCESSED_STATUS_ONGOING;
@@ -23,8 +26,13 @@ contract SimulateOracles is Test {
     string internal PROCESSED_STATUS_FINISHED_DRAW;
 
     string constant MATCHID = "1-a536dd90-4df3-42df-be6e-d158177fdef2";
+
     string constant WINNING_PLAYERID = "94f98244-169d-478a-a5dd-21dde2e649ca";
+    string constant WINNING_PLAYERID2 = "541d15c2-e699-4c99-a706-ddedcd6aac62";
+    string constant WINNING_PLAYERID3 = "5295e6a8-b817-4d38-bbcf-f2c7b56bd472";
+
     string constant LOSING_PLAYERID = "92f1450e-182b-41db-8f31-53079df20c73";
+    string constant LOSING_PLAYERID2 = "0a3fe9a7-b60f-4746-b30d-57bea3414077";
 
     function setUpSimulation(address chainLinkFunctionsRouter, FragBoxBetting fragBoxBetting) internal {
         fragBoxBettingContract = fragBoxBetting;
@@ -34,7 +42,10 @@ contract SimulateOracles is Test {
 
         if (keccak256(bytes(mode)) == keccak256(bytes("offline"))) {
             PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse("matchReady.json", WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER_2 = _getProcessedResponse("matchReady.json", WINNING_PLAYERID2);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER_3 = _getProcessedResponse("matchReady.json", WINNING_PLAYERID3);
             PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse("matchReady.json", LOSING_PLAYERID);
+            PROCESSED_ROSTER_READY_LOSING_PLAYER_2 = _getProcessedResponse("matchReady.json", LOSING_PLAYERID2);
             PROCESSED_STATUS_VOTING = _getProcessedResponse("matchVoting.json", "");
             PROCESSED_STATUS_READY = _getProcessedResponse("matchReady.json", "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse("matchOngoing.json", "");
@@ -42,7 +53,10 @@ contract SimulateOracles is Test {
             PROCESSED_STATUS_FINISHED_DRAW = _getProcessedResponse("matchFinishedDraw.json", "");
         } else {
             PROCESSED_ROSTER_READY_WINNING_PLAYER = _getProcessedResponse(MATCHID, WINNING_PLAYERID);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER_2 = _getProcessedResponse(MATCHID, WINNING_PLAYERID2);
+            PROCESSED_ROSTER_READY_WINNING_PLAYER_3 = _getProcessedResponse(MATCHID, WINNING_PLAYERID3);
             PROCESSED_ROSTER_READY_LOSING_PLAYER = _getProcessedResponse(MATCHID, LOSING_PLAYERID);
+            PROCESSED_ROSTER_READY_LOSING_PLAYER_2 = _getProcessedResponse(MATCHID, LOSING_PLAYERID2);
             PROCESSED_STATUS_VOTING = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_READY = _getProcessedResponse(MATCHID, "");
             PROCESSED_STATUS_ONGOING = _getProcessedResponse(MATCHID, "");
@@ -51,7 +65,10 @@ contract SimulateOracles is Test {
         }
     }
 
-    event RequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
+    event StatusRequestSent(bytes32 indexed requestId, bytes32 indexed matchKey, string matchId);
+    event RosterRequestSent(
+        bytes32 indexed requestId, bytes32 indexed matchKey, string matchId, bytes32 indexed playerKey, string playerId
+    );
 
     /* --------------------------- CAPTURE REQUEST ID --------------------------- */
     function _startRequestCapture() internal {
@@ -61,7 +78,7 @@ contract SimulateOracles is Test {
     function _captureRequestId() internal view returns (bytes32) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].topics[0] == RequestSent.selector) {
+            if (logs[i].topics[0] == StatusRequestSent.selector || logs[i].topics[0] == RosterRequestSent.selector) {
                 return logs[i].topics[1];
             }
         }

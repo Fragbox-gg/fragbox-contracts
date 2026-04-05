@@ -4,10 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console, Vm} from "forge-std/Test.sol";
 import {DeployFragBoxBetting} from "../script/DeployFragBoxBetting.s.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
-import {ETHReceiver} from "./mocks/ETHReceiver.sol";
 import {SimulateOracles} from "./SimulateOracles.t.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {ETHReceiver} from "./mocks/ETHReceiver.sol";
 
 contract FragBoxBettingFuzzTest is SimulateOracles {
     FragBoxBetting fragBoxBetting;
@@ -15,8 +13,12 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
 
     address public USER;
     address public USER2;
-    uint256 constant SEND_VALUE = 0.1 ether;
-    uint256 constant STARTING_BALANCE = 10 ether;
+    address public USER3;
+    address public USER4;
+    uint256 constant MIN_SEND_VALUE = 5_000_000; // $5
+    uint256 constant MAX_SEND_VALUE = 10_000_000; // $10
+    uint8 constant DEFAULT_TIER_ID = 1;
+    uint256 constant STARTING_USDC_BALANCE = 50_000_000; // $50
 
     FragBoxBetting.Faction constant LOSING_FACTION = FragBoxBetting.Faction.Faction2;
 
@@ -24,34 +26,57 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         DeployFragBoxBetting deployFragBoxBetting = new DeployFragBoxBetting();
         (fragBoxBetting, chainLinkFunctionsRouter) = deployFragBoxBetting.run();
 
-        USER = address(new ETHReceiver());
-        vm.deal(USER, STARTING_BALANCE);
+        USER = makeAddr("USER");
+        deal(address(fragBoxBetting.getUsdc()), USER, STARTING_USDC_BALANCE);
 
-        USER2 = address(new ETHReceiver());
-        vm.deal(USER2, STARTING_BALANCE);
+        USER2 = makeAddr("USER2");
+        deal(address(fragBoxBetting.getUsdc()), USER2, STARTING_USDC_BALANCE);
+
+        USER3 = makeAddr("USER3");
+        deal(address(fragBoxBetting.getUsdc()), USER3, STARTING_USDC_BALANCE);
+
+        USER4 = makeAddr("USER4");
+        deal(address(fragBoxBetting.getUsdc()), USER4, STARTING_USDC_BALANCE);
+
+        vm.startPrank(USER);
+        fragBoxBetting.getUsdc().approve(address(fragBoxBetting), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(USER2);
+        fragBoxBetting.getUsdc().approve(address(fragBoxBetting), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(USER3);
+        fragBoxBetting.getUsdc().approve(address(fragBoxBetting), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(USER4);
+        fragBoxBetting.getUsdc().approve(address(fragBoxBetting), type(uint256).max);
+        vm.stopPrank();
 
         super.setUpSimulation(chainLinkFunctionsRouter, fragBoxBetting);
 
         vm.startPrank(fragBoxBetting.owner());
         fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
-        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER2);
+        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID2, USER2);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER3);
+        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID2, USER4);
         vm.stopPrank();
     }
 
     function testFuzz_DepositAndTopUp(uint256 bet1, uint256 bet2) public {
-        bet1 = bound(bet1, 0.01 ether, 1.2 ether);
-        bet2 = bound(bet2, 0.01 ether, 1.2 ether);
+        bet1 = bound(bet1, MIN_SEND_VALUE, MAX_SEND_VALUE);
+        bet2 = bound(bet2, MIN_SEND_VALUE, MAX_SEND_VALUE);
 
-        // (your existing mock setup for roster + status would go here)
         super._startRequestCapture();
         vm.prank(USER);
-        fragBoxBetting.deposit{value: bet1}(MATCHID, WINNING_PLAYERID);
-        bytes32 requestId = super._captureRequestId();
-        super._simulateFulfill(requestId, bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
+        fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, bet1, DEFAULT_TIER_ID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        // Don't need to capture request id and simulate fulfill because we're stacking a bet on the same playerid, so the roster was already validated
-        vm.prank(USER);
-        fragBoxBetting.deposit{value: bet2}(MATCHID, WINNING_PLAYERID);
+        super._startRequestCapture();
+        vm.prank(USER2);
+        fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID2, bet2, DEFAULT_TIER_ID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER_2), "");
 
         FragBoxBetting.MatchBetView memory vw = fragBoxBetting.getMatchBet(fragBoxBetting.getKey(MATCHID));
         uint256 bet1Fee = fragBoxBetting.calculateDepositFee(bet1);
@@ -68,75 +93,29 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
     }
 
     function testFuzz_ClaimPayoutSymmetry(uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2) public {
-        uint256 betWin1WithFee;
-        uint256 betWin2WithFee;
-        uint256 betLose1WithFee;
-        uint256 betLose2WithFee;
-
-        (betWin1, betWin2, betLose1, betLose2,,,,, betWin1WithFee, betWin2WithFee, betLose1WithFee, betLose2WithFee) =
-            getRandomBets(betWin1, betWin2, betLose1, betLose2);
-
-        uint256 user1BalanceBefore = USER.balance;
-        uint256 user2BalanceBefore = USER2.balance;
-
-        uint256 totalWin = betWin1WithFee + betWin2WithFee;
-        uint256 totalLose = betLose1WithFee + betLose2WithFee;
-        uint256 minBet = Math.min(totalWin, totalLose);
-
-        uint256 expectedUser1 = 0;
-        uint256 expectedUser2 = 0;
-
-        // Winning bets (Faction1) — always get 2 * minBet pro-rata + excess refund if winners overbet
-        if (totalWin > 0) {
-            uint256 baseWin1 = (betWin1WithFee * 2 * minBet) / totalWin;
-            uint256 baseWin2 = (betWin2WithFee * 2 * minBet) / totalWin;
-
-            expectedUser1 += baseWin1;
-            expectedUser2 += baseWin2;
-
-            if (totalWin > totalLose) {
-                uint256 excess = totalWin - minBet;
-                expectedUser1 += (betWin1WithFee * excess) / totalWin;
-                expectedUser2 += (betWin2WithFee * excess) / totalWin;
-            }
-        }
-
-        // Losing bets excess refund (only if losers overbet — handled in the if inside claim)
-        if (totalLose > totalWin && totalLose > 0) {
-            uint256 excess = totalLose - minBet;
-            expectedUser1 += (betLose1WithFee * excess) / totalLose;
-            expectedUser2 += (betLose2WithFee * excess) / totalLose;
-        }
-
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER);
+        BetTestData memory data = getRandomBets(betWin1, betWin2, betLose1, betLose2);
 
         // Deposit winners
         super._startRequestCapture();
         vm.prank(USER);
-        fragBoxBetting.deposit{value: betWin1}(MATCHID, WINNING_PLAYERID);
+        fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID, data.betWin1, DEFAULT_TIER_ID);
         super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER), "");
 
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.registerPlayerWallet(WINNING_PLAYERID, USER2);
-
-        vm.prank(USER2); // reuse USER2 for second winner (in real fuzz you'd add more actors)
-        fragBoxBetting.deposit{value: betWin2}(MATCHID, WINNING_PLAYERID);
-
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER);
+        super._startRequestCapture();
+        vm.prank(USER2);
+        fragBoxBetting.deposit(MATCHID, WINNING_PLAYERID2, data.betWin2, DEFAULT_TIER_ID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_WINNING_PLAYER_2), "");
 
         // Deposit losers
         super._startRequestCapture();
-        vm.prank(USER);
-        fragBoxBetting.deposit{value: betLose1}(MATCHID, LOSING_PLAYERID);
+        vm.prank(USER3);
+        fragBoxBetting.deposit(MATCHID, LOSING_PLAYERID, data.betLose1, DEFAULT_TIER_ID);
         super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER), "");
 
-        vm.prank(fragBoxBetting.owner());
-        fragBoxBetting.registerPlayerWallet(LOSING_PLAYERID, USER2);
-
-        vm.prank(USER2);
-        fragBoxBetting.deposit{value: betLose2}(MATCHID, LOSING_PLAYERID);
+        super._startRequestCapture();
+        vm.prank(USER4);
+        fragBoxBetting.deposit(MATCHID, LOSING_PLAYERID2, data.betLose2, DEFAULT_TIER_ID);
+        super._simulateFulfill(super._captureRequestId(), bytes(PROCESSED_ROSTER_READY_LOSING_PLAYER_2), "");
 
         // Finish match with Faction1 win
         super._startRequestCapture();
@@ -155,8 +134,15 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         vm.startPrank(USER);
         fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
         fragBoxBetting.withdraw(WINNING_PLAYERID);
+        vm.stopPrank();
 
-        if (totalLose > totalWin) {
+        vm.startPrank(USER2);
+        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID2);
+        fragBoxBetting.withdraw(WINNING_PLAYERID2);
+        vm.stopPrank();
+
+        vm.startPrank(USER3);
+        if (data.totalLose > data.totalWin) {
             fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
             fragBoxBetting.withdraw(LOSING_PLAYERID);
         } else {
@@ -167,93 +153,144 @@ contract FragBoxBettingFuzzTest is SimulateOracles {
         }
         vm.stopPrank();
 
-        vm.startPrank(USER2);
-        fragBoxBetting.claim(MATCHID, WINNING_PLAYERID);
-        fragBoxBetting.withdraw(WINNING_PLAYERID);
-
-        if (totalLose > totalWin) {
-            fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
-            fragBoxBetting.withdraw(LOSING_PLAYERID);
+        vm.startPrank(USER4);
+        if (data.totalLose > data.totalWin) {
+            fragBoxBetting.claim(MATCHID, LOSING_PLAYERID2);
+            fragBoxBetting.withdraw(LOSING_PLAYERID2);
         } else {
             vm.expectRevert(
                 abi.encodeWithSelector(FragBoxBetting.FragBoxBetting__LosingFactionCannotClaim.selector, LOSING_FACTION)
             );
-            fragBoxBetting.claim(MATCHID, LOSING_PLAYERID);
+            fragBoxBetting.claim(MATCHID, LOSING_PLAYERID2);
         }
         vm.stopPrank();
 
         // Verify each user received *exactly* their pro-rata share (after withdraw)
         assertApproxEqAbs(
-            USER.balance,
-            user1BalanceBefore - betWin1 - betLose1 + expectedUser1,
+            fragBoxBetting.getUsdc().balanceOf(USER),
+            data.user1BalanceBefore - data.betWin1 + data.expectedUser1,
             2,
             "USER net payout incorrect (winning + optional losing excess)"
         );
         assertApproxEqAbs(
-            USER2.balance,
-            user2BalanceBefore - betWin2 - betLose2 + expectedUser2,
+            fragBoxBetting.getUsdc().balanceOf(USER2),
+            data.user2BalanceBefore - data.betWin2 + data.expectedUser2,
             2,
             "USER2 net payout incorrect (winning + optional losing excess)"
         );
+        assertApproxEqAbs(
+            fragBoxBetting.getUsdc().balanceOf(USER3),
+            data.user3BalanceBefore - data.betLose1 + data.expectedUser3,
+            2,
+            "USER3 net payout incorrect (winning + optional losing excess)"
+        );
+        assertApproxEqAbs(
+            fragBoxBetting.getUsdc().balanceOf(USER4),
+            data.user4BalanceBefore - data.betLose2 + data.expectedUser4,
+            2,
+            "USER4 net payout incorrect (winning + optional losing excess)"
+        );
 
-        // === SYMMETRY + DUST INVARIANT (the strongest check) ===
+        // SYMMETRY + DUST INVARIANT
         // Contract must hold *only* the rounding dust swept to ownerFeesCollected.
         // All bets (totalWin + totalLose) minus dust = everything paid to players.
-        vm.prank(fragBoxBetting.owner());
+        vm.startPrank(fragBoxBetting.owner());
         assertApproxEqAbs(
-            address(fragBoxBetting).balance,
+            fragBoxBetting.getUsdc().balanceOf(address(fragBoxBetting)),
             fragBoxBetting.getOwnerFeesCollected(),
-            1000,
+            2,
             "Contract balance must equal collected owner fees + negligible flooring dust"
         );
+        vm.stopPrank();
+    }
+
+    struct BetTestData {
+        uint256 betWin1;
+        uint256 betWin2;
+        uint256 betLose1;
+        uint256 betLose2;
+
+        uint256 betWin1WithFee;
+        uint256 betWin2WithFee;
+        uint256 betLose1WithFee;
+        uint256 betLose2WithFee;
+
+        uint256 user1BalanceBefore;
+        uint256 user2BalanceBefore;
+        uint256 user3BalanceBefore;
+        uint256 user4BalanceBefore;
+
+        uint256 totalWin;
+        uint256 totalLose;
+        uint256 minBet;
+
+        uint256 expectedUser1;
+        uint256 expectedUser2;
+        uint256 expectedUser3;
+        uint256 expectedUser4;
     }
 
     function getRandomBets(uint256 betWin1, uint256 betWin2, uint256 betLose1, uint256 betLose2)
         internal
         view
-        returns (
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256
-        )
+        returns (BetTestData memory data)
     {
-        betWin1 = bound(betWin1, 0.0025 ether, 1 ether);
-        betWin2 = bound(betWin2, 0.0025 ether, 1 ether);
-        betLose1 = bound(betLose1, 0.0025 ether, 1 ether);
-        betLose2 = bound(betLose2, 0.0025 ether, 1 ether);
+        data.betWin1 = bound(betWin1, MIN_SEND_VALUE, MAX_SEND_VALUE);
+        data.betWin2 = bound(betWin2, MIN_SEND_VALUE, MAX_SEND_VALUE);
+        data.betLose1 = bound(betLose1, MIN_SEND_VALUE, MAX_SEND_VALUE);
+        data.betLose2 = bound(betLose2, MIN_SEND_VALUE, MAX_SEND_VALUE);
 
-        uint256 betWin1Fee = fragBoxBetting.calculateDepositFee(betWin1);
-        uint256 betWin2Fee = fragBoxBetting.calculateDepositFee(betWin2);
-        uint256 betLose1Fee = fragBoxBetting.calculateDepositFee(betLose1);
-        uint256 betLose2Fee = fragBoxBetting.calculateDepositFee(betLose2);
+        uint256 betWin1Fee = fragBoxBetting.calculateDepositFee(data.betWin1);
+        uint256 betWin2Fee = fragBoxBetting.calculateDepositFee(data.betWin2);
+        uint256 betLose1Fee = fragBoxBetting.calculateDepositFee(data.betLose1);
+        uint256 betLose2Fee = fragBoxBetting.calculateDepositFee(data.betLose2);
 
-        uint256 betWin1WithFee = betWin1 - betWin1Fee;
-        uint256 betWin2WithFee = betWin2 - betWin2Fee;
-        uint256 betLose1WithFee = betLose1 - betLose1Fee;
-        uint256 betLose2WithFee = betLose2 - betLose2Fee;
+        data.betWin1WithFee = data.betWin1 - betWin1Fee;
+        data.betWin2WithFee = data.betWin2 - betWin2Fee;
+        data.betLose1WithFee = data.betLose1 - betLose1Fee;
+        data.betLose2WithFee = data.betLose2 - betLose2Fee;
 
-        return (
-            betWin1,
-            betWin2,
-            betLose1,
-            betLose2,
-            betWin1Fee,
-            betWin2Fee,
-            betLose1Fee,
-            betLose2Fee,
-            betWin1WithFee,
-            betWin2WithFee,
-            betLose1WithFee,
-            betLose2WithFee
-        );
+        data.totalWin = data.betWin1WithFee + data.betWin2WithFee;
+        data.totalLose = data.betLose1WithFee + data.betLose2WithFee;
+        data.minBet = Math.min(data.totalWin, data.totalLose);
+
+        uint256 expectedUser1 = 0;
+        uint256 expectedUser2 = 0;
+        uint256 expectedUser3 = 0;
+        uint256 expectedUser4 = 0;
+
+        // Winning bets (Faction1) — always get 2 * minBet pro-rata + excess refund if winners overbet
+        if (data.totalWin > 0) {
+            uint256 baseWin1 = (data.betWin1WithFee * 2 * data.minBet) / data.totalWin;
+            uint256 baseWin2 = (data.betWin2WithFee * 2 * data.minBet) / data.totalWin;
+
+            expectedUser1 += baseWin1;
+            expectedUser2 += baseWin2;
+
+            if (data.totalWin > data.totalLose) {
+                uint256 excess = data.totalWin - data.minBet;
+                expectedUser1 += (data.betWin1WithFee * excess) / data.totalWin;
+                expectedUser2 += (data.betWin2WithFee * excess) / data.totalWin;
+            }
+        }
+
+        // Losing bets excess refund (only if losers overbet)
+        if (data.totalLose > data.totalWin && data.totalLose > 0) {
+            uint256 excess = data.totalLose - data.minBet;
+            expectedUser3 += (data.betLose1WithFee * excess) / data.totalLose;
+            expectedUser4 += (data.betLose2WithFee * excess) / data.totalLose;
+        }
+
+        data.expectedUser1 = expectedUser1;
+        data.expectedUser2 = expectedUser2;
+        data.expectedUser3 = expectedUser3;
+        data.expectedUser4 = expectedUser4;
+
+        data.user1BalanceBefore = fragBoxBetting.getUsdc().balanceOf(USER);
+        data.user2BalanceBefore = fragBoxBetting.getUsdc().balanceOf(USER2);
+        data.user3BalanceBefore = fragBoxBetting.getUsdc().balanceOf(USER3);
+        data.user4BalanceBefore = fragBoxBetting.getUsdc().balanceOf(USER4);
+
+        return data;
     }
 }
