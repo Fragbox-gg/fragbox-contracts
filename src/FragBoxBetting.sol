@@ -370,7 +370,12 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external nonReentrant whenNotPaused costsFeeOrOwner(minStatusUpdateFee) {
+    function updateMatchStatus(string calldata matchIdStr)
+        external
+        nonReentrant
+        whenNotPaused
+        costsFeeOrOwner(minStatusUpdateFee)
+    {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
