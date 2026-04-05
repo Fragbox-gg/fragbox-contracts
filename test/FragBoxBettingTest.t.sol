@@ -15,9 +15,9 @@ contract FragBoxBettingTest is SimulateOracles {
     address public USER2;
     address public USER3;
 
-    uint256 constant SEND_VALUE = 5_000_000; // USDC has 6 decimals so this is $5
+    uint256 constant SEND_VALUE = 5e6; // USDC has 6 decimals so this is $5
     uint8 constant DEFAULT_TIER_ID = 1;
-    uint256 constant STARTING_USDC_BALANCE = 50_000_000; // $50
+    uint256 constant STARTING_USDC_BALANCE = 50e6; // $50
     uint256 constant CALLBACK_GAS_LIMIT = 250_000;
     uint256 constant WARP_TIME = 5 minutes;
 

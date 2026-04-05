@@ -184,7 +184,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
     uint256 private emergencyRefundTimeout = 4 hours;
     uint256 private inFlightWithdrawalTimeout = 1 hours;
     uint256 private houseFeePercentage = 1; // 1 = 1%
-    uint256 private minStatusUpdateFee = 20_000_000; // $20
+    uint256 private minStatusUpdateFee = 20e6; // $20
     uint256 private statusUpdateCooldown = 5 minutes;
     uint256 private rosterUpdateCooldown = 10 minutes;
 
@@ -370,7 +370,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * @notice Need to setup a CRON job or Chainlink automation to routinely call this based on active matchIds that users bet on
      * @param matchIdStr The match Id to check
      */
-    function updateMatchStatus(string calldata matchIdStr) external whenNotPaused costsFeeOrOwner(minStatusUpdateFee) {
+    function updateMatchStatus(string calldata matchIdStr) external nonReentrant whenNotPaused costsFeeOrOwner(minStatusUpdateFee) {
         bytes32 matchKey = _getKey(matchIdStr);
         MatchBet storage mb = matchBets[matchKey];
 
@@ -794,7 +794,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, FunctionsClient, Pausable {
      * Sets the min fee for status updates in USD (when not the owner)
      * @param newMinStatusUpdateFee The new min fee in USD wei
      */
-    function setMinStatusUpdateFeeUsd(uint256 newMinStatusUpdateFee) external onlyOwner {
+    function setMinStatusUpdateFee(uint256 newMinStatusUpdateFee) external onlyOwner {
         emit MinStatusUpdateFeeUpdated(minStatusUpdateFee, newMinStatusUpdateFee);
         minStatusUpdateFee = newMinStatusUpdateFee;
     }

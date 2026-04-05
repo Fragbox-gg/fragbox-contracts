@@ -12,8 +12,6 @@ contract FragBoxHandler is CommonBase, StdCheats, Test, SimulateOracles {
 
     address[] public actors;
 
-    string[3] public factions = ["faction1", "faction2", "draw"];
-
     /* ----------------------------- GHOST VARIABLES ---------------------------- */
     uint256 public ghost_totalDeposited; // ALL ETH that ever entered the contract
     uint256 public ghost_totalWithdrawnUsers; // winnings + in-flight withdrawals
