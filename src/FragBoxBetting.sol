@@ -17,6 +17,8 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     error FragBoxBetting__InvalidWallet();
     error FragBoxBetting__TierMismatch();
     error FragBoxBetting__TierNotActive();
+    error FragBoxBetting__TierAlreadySet();
+    error FragBoxBetting__TierIdMustBeGreaterThanZero();
     error FragBoxBetting__MatchStatusDoesNotAllowBets();
     error FragBoxBetting__MatchStatusIsInvalid();
     error FragBoxBetting__MatchAlreadyFinished();
@@ -29,7 +31,6 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     error FragBoxBetting__NoBetForPlayer();
     error FragBoxBetting__InsufficientFundsForWithdrawal();
     error FragBoxBetting__WinnerUnknown();
-    error FragBoxBetting__TierIdMustBeGreaterThanZero();
     error FragBoxBetting__MinBetMustBeGreaterThanMaxBet();
     error FragBoxBetting__PlayerFactionInvalid();
     error FragBoxBetting__LosingFactionCannotClaim(Faction faction);
@@ -156,6 +157,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
     event StatusUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event RosterUpdateCooldownUpdated(uint256 oldCooldown, uint256 newCooldown);
     event TierUpdated(uint8 indexed tierId, uint256 minBetAmount, uint256 maxBetAmount);
+    event MatchTierSet(bytes32 indexed matchKey, string matchId, uint8 tierId);
 
     /* -------------------------------------------------------------------------- */
     /*                                  CONSTANTS                                 */
@@ -369,6 +371,31 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         onlyOwner
     {
         _updateMatchStatus(matchIdStr, newMatchStatus, winnerFaction);
+    }
+
+    /**
+     * @notice Owner can pre-set the tier for a match (recommended for production).
+     * Once a tier is set, it cannot be changed.
+     * @param matchIdStr The matchId to set the tier for
+     * @param tierId The tierId to set for the match
+     */
+    function setMatchTier(string calldata matchIdStr, uint8 tierId) external onlyOwner {
+        if (tierId == 0) revert FragBoxBetting__TierIdMustBeGreaterThanZero();
+
+        bytes32 matchKey = _getKey(matchIdStr);
+        MatchBet storage mb = matchBets[matchKey];
+
+        if (mb.tierId != 0) {
+            revert FragBoxBetting__TierAlreadySet();
+        }
+
+        // Validate that the tier actually exists and is active
+        if (!tiers[tierId].active) {
+            revert FragBoxBetting__TierNotActive();
+        }
+
+        mb.tierId = tierId;
+        emit MatchTierSet(matchKey, matchIdStr, tierId);
     }
 
     /**
