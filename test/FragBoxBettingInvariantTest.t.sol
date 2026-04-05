@@ -22,7 +22,7 @@ contract FragBoxBettingInvariantTest is Test {
 
     // ==================== INVARIANTS (these run after every fuzz call) ====================
     function invariant_contractBalanceNeverNegative() public view {
-        assertGe(address(fragBoxBetting).balance, 0);
+        assertGe(fragBoxBetting.getUsdc().balanceOf(address(fragBoxBetting)), 0);
     }
 
     function invariant_ghostDepositedConsistency() public view {
@@ -34,7 +34,7 @@ contract FragBoxBettingInvariantTest is Test {
         uint256 totalWithdrawn = handler.ghost_totalWithdrawnUsers() + handler.ghost_totalWithdrawnOwner();
 
         assertEq(
-            address(fragBoxBetting).balance + totalWithdrawn,
+            fragBoxBetting.getUsdc().balanceOf(address(fragBoxBetting)) + totalWithdrawn,
             handler.ghost_totalDeposited(),
             "ETH conservation violated: total input != contract balance + all withdrawals"
         );
