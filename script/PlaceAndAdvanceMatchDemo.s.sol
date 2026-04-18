@@ -5,91 +5,101 @@ import {Script, console} from "forge-std/Script.sol";
 import {FragBoxBetting} from "../src/FragBoxBetting.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract PlaceAndAdvanceMatchDemo is Script {
+contract PlaceBetsAndAdvanceMatchDemo is Script {
+    uint256 private constant BET_AMOUNT = 5_000_000; // 5 USDC
+    uint8 private constant TIER_ID = 1;
+
+    struct MatchInfo {
+        string matchId;
+        string[] faction1Players;
+        string[] faction2Players;
+    }
+
+    MatchInfo[] private matches;
+
+    function _toDynamic(string[2] memory arr) private pure returns (string[] memory) {
+        string[] memory dyn = new string[](2);
+        for (uint256 i = 0; i < 2; i++) {
+            dyn[i] = arr[i];
+        }
+        return dyn;
+    }
+
+    function _toDynamic(string[3] memory arr) private pure returns (string[] memory) {
+        string[] memory dyn = new string[](3);
+        for (uint256 i = 0; i < 3; i++) {
+            dyn[i] = arr[i];
+        }
+        return dyn;
+    }
+
+    string private constant MY_PLAYER_ID = "415c58c9-81cd-435a-be65-fff9d891483b";
+
     function run() external {
         // ====================== CONFIG ======================
-        // Replace these or pull from env if you prefer
-        address BETTING_CONTRACT = 0x9f232D0015FAe832E6FC23566dc31B1f797788bb;
-
-        string memory MATCH_ID = "1-80221dfd-646f-49ae-97fa-78f73ffc71e4";
-        uint8 TIER_ID = 1; // default tier
-
-        // ====================== PLAYER IDS & BETS ======================
-        // Fill these arrays yourself (real Faceit player IDs from the match)
-        string[] memory team1Players = new string[](2); // Faction1
-        team1Players[0] = "415c58c9-81cd-435a-be65-fff9d891483b"; // your player ID
-        team1Players[1] = "OTHER_REAL_PLAYER_ID_FROM_MATCH_1"; // add more
-
-        uint256[] memory team1Bets = new uint256[](2); // 6 decimals (e.g. 25 USDC = 25_000_000)
-        team1Bets[0] = 25_000_000;
-        team1Bets[1] = 15_000_000;
-
-        string[] memory team2Players = new string[](2); // Faction2
-        team2Players[0] = "OTHER_REAL_PLAYER_ID_FROM_MATCH_2";
-        team2Players[1] = "OTHER_REAL_PLAYER_ID_FROM_MATCH_3";
-
-        uint256[] memory team2Bets = new uint256[](2);
-        team2Bets[0] = 20_000_000;
-        team2Bets[1] = 10_000_000;
-        // =====================================================
-
-        FragBoxBetting betting = FragBoxBetting(BETTING_CONTRACT);
+        FragBoxBetting betting = FragBoxBetting(address(0x9f232D0015FAe832E6FC23566dc31B1f797788bb));
         IERC20 usdc = IERC20(betting.getUsdc());
 
-        uint256 ownerPk = vm.envUint("PRIVATE_KEY_OWNER");
-        uint256 playerPk = vm.envUint("PRIVATE_KEY_PLAYER");
-        address playerWallet = vm.addr(playerPk);
+        matches.push(
+            MatchInfo({
+                matchId: "1-80221dfd-646f-49ae-97fa-78f73ffc71e4",
+                faction1Players: _toDynamic(
+                    ["308f48cc-f295-4a81-ab7a-bb0d87f1aa13", "24ea90e6-8f99-43a0-b209-17aa01a4facd"]
+                ),
+                faction2Players: _toDynamic(
+                    [
+                        "a53eb25c-a4b6-4400-9b91-4cea9634bc4a",
+                        "c6649075-a591-4a3d-8bde-22e59e3e637f",
+                        "25518de8-4f33-4b23-856f-cad03c72df0f"
+                    ]
+                )
+            })
+        );
 
-        // 1. OWNER: Register all player IDs to the same player wallet (works perfectly)
-        vm.startBroadcast(ownerPk);
-        for (uint256 i = 0; i < team1Players.length; i++) {
-            betting.registerPlayerWallet(team1Players[i], playerWallet);
-            console.log("Registered (team1):", team1Players[i]);
-        }
-        for (uint256 i = 0; i < team2Players.length; i++) {
-            betting.registerPlayerWallet(team2Players[i], playerWallet);
-            console.log("Registered (team2):", team2Players[i]);
-        }
-        vm.stopBroadcast();
+        for (uint256 j = 0; j < matches.length; j++) {
+            string memory matchId = matches[j].matchId;
 
-        // 2. PLAYER: Approve + place bets on both sides
-        vm.startBroadcast(playerPk);
-        // Approve once for total amount
-        uint256 totalBet = 0;
-        for (uint256 i = 0; i < team1Bets.length; i++) {
-            totalBet += team1Bets[i];
-        }
-        for (uint256 i = 0; i < team2Bets.length; i++) {
-            totalBet += team2Bets[i];
-        }
-        usdc.approve(address(betting), totalBet);
+            string[] memory team1Players = matches[j].faction1Players;
+            string[] memory team2Players = matches[j].faction2Players;
 
-        // Team 1 bets
-        for (uint256 i = 0; i < team1Players.length; i++) {
-            betting.deposit(MATCH_ID, team1Players[i], team1Bets[i], TIER_ID);
-            console.log("Bet placed (team1):", team1Players[i], team1Bets[i]);
-        }
-        // Team 2 bets
-        for (uint256 i = 0; i < team2Players.length; i++) {
-            betting.deposit(MATCH_ID, team2Players[i], team2Bets[i], TIER_ID);
-            console.log("Bet placed (team2):", team2Players[i], team2Bets[i]);
-        }
-        vm.stopBroadcast();
+            vm.startBroadcast();
 
-        // 3. OWNER: Update rosters + set initial status to Ready
-        vm.startBroadcast(ownerPk);
-        // Team 1 → Faction1
-        for (uint256 i = 0; i < team1Players.length; i++) {
-            betting.updateMatchRoster(MATCH_ID, team1Players[i], playerWallet, FragBoxBetting.Faction.Faction1);
-        }
-        // Team 2 → Faction2
-        for (uint256 i = 0; i < team2Players.length; i++) {
-            betting.updateMatchRoster(MATCH_ID, team2Players[i], playerWallet, FragBoxBetting.Faction.Faction2);
-        }
+            // 1. Register every player ID to your MetaMask wallet and Approve USDC once
+            usdc.approve(address(betting), type(uint256).max);
 
-        // First status MUST be Ready or Voting (otherwise Invalid)
-        betting.updateMatchStatus(MATCH_ID, FragBoxBetting.MatchStatus.Ready);
-        console.log("Match set to Ready. Cron job will now finish it.");
-        vm.stopBroadcast();
+            // 2. Place bets on both sides
+            for (uint256 i = 0; i < team1Players.length; i++) {
+                betting.registerPlayerWallet(team1Players[i], msg.sender);
+                console.log("Registered (team1):", team1Players[i]);
+
+                betting.deposit(matchId, team1Players[i], BET_AMOUNT, TIER_ID);
+                console.log("Bet placed (team1):", team1Players[i], BET_AMOUNT / 1e6, "USDC");
+            }
+            for (uint256 i = 0; i < team2Players.length; i++) {
+                betting.registerPlayerWallet(team2Players[i], msg.sender);
+                console.log("Registered (team2):", team2Players[i]);
+
+                betting.deposit(matchId, team2Players[i], BET_AMOUNT, TIER_ID);
+                console.log("Bet placed (team2):", team2Players[i], BET_AMOUNT / 1e6, "USDC");
+            }
+
+            // 3. Update rosters (owner only)
+            // for (uint256 i = 0; i < team1Players.length; i++) {
+            //     betting.updateMatchRoster(matchId, team1Players[i], msg.sender, FragBoxBetting.Faction.Faction1);
+            // }
+            // for (uint256 i = 0; i < team2Players.length; i++) {
+            //     betting.updateMatchRoster(matchId, team2Players[i], msg.sender, FragBoxBetting.Faction.Faction2);
+            // }
+
+            // 4. First status MUST be Ready or Voting (owner only)
+            betting.updateMatchStatus(matchId, FragBoxBetting.MatchStatus.Ready);
+            console.log("Match set to Ready -> cron job will finish it in ~6 min");
+            console.log("Match ID:", matchId);
+
+            // 5. transfer ownership back to the CDP server wallet that our cron job/web server uses
+            betting.transferOwnership(address(0x1fEb79756f4497b07a2059FE6AAF59fA67fb68D1));
+
+            vm.stopBroadcast();
+        }
     }
 }
