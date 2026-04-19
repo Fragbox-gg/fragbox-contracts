@@ -112,6 +112,8 @@ Test Suite (comprehensive coverage):
 - test/FragBoxBettingInvariantTest.t.sol
 - test/handlers/FragBoxHandler.sol
 
+!["Current Coverage"](Test-Coverage.png)
+
 🔒 Security Considerations
 - ReentrancyGuard on all state-changing functions
 - Pausable for emergencies
