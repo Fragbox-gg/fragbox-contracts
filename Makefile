@@ -40,7 +40,8 @@ endif
 deploy:
 	@forge script script/DeployFragBoxBetting.s.sol:DeployFragBoxBetting $(NETWORK_ARGS)
 
-placeAndAdvanceMatchDemo: forge script script/PlaceAndAdvanceMatchDemo.s.sol --rpc-url $(BASE_SEPOLIA_RPC_URL) --account metamask-sepolia --sender 0x4E799653CE4f867FDb31610a37bB69c1E8b69F90 --broadcast --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
+placeAndAdvanceMatchDemo:
+	@forge script script/PlaceAndAdvanceMatchDemo.s.sol --rpc-url $(BASE_SEPOLIA_RPC_URL) --account metamask-sepolia --sender 0x4E799653CE4f867FDb31610a37bB69c1E8b69F90 --broadcast --etherscan-api-key $(ETHERSCAN_API_KEY) -vvvv
 
 # ---------------------------------------------------------------------------- #
 #                 CI-friendly targets (used by GitHub Actions)                 #

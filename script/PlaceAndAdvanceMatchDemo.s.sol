@@ -17,17 +17,17 @@ contract PlaceBetsAndAdvanceMatchDemo is Script {
 
     MatchInfo[] private matches;
 
-    function _toDynamic(string[2] memory arr) private pure returns (string[] memory) {
-        string[] memory dyn = new string[](2);
-        for (uint256 i = 0; i < 2; i++) {
+    function _toDynamic(string[5] memory arr) private pure returns (string[] memory) {
+        string[] memory dyn = new string[](5);
+        for (uint256 i = 0; i < 5; i++) {
             dyn[i] = arr[i];
         }
         return dyn;
     }
 
-    function _toDynamic(string[3] memory arr) private pure returns (string[] memory) {
-        string[] memory dyn = new string[](3);
-        for (uint256 i = 0; i < 3; i++) {
+    function _toDynamic(string[4] memory arr) private pure returns (string[] memory) {
+        string[] memory dyn = new string[](4);
+        for (uint256 i = 0; i < 4; i++) {
             dyn[i] = arr[i];
         }
         return dyn;
@@ -40,38 +40,29 @@ contract PlaceBetsAndAdvanceMatchDemo is Script {
         FragBoxBetting betting = FragBoxBetting(address(0x9f232D0015FAe832E6FC23566dc31B1f797788bb));
         IERC20 usdc = IERC20(betting.getUsdc());
 
-        // matches.push(
-        //     MatchInfo({
-        //         matchId: "1-80221dfd-646f-49ae-97fa-78f73ffc71e4",
-        //         faction1Players: _toDynamic(
-        //             ["308f48cc-f295-4a81-ab7a-bb0d87f1aa13", "24ea90e6-8f99-43a0-b209-17aa01a4facd"]
-        //         ),
-        //         faction2Players: _toDynamic(
-        //             [
-        //                 "a53eb25c-a4b6-4400-9b91-4cea9634bc4a",
-        //                 "c6649075-a591-4a3d-8bde-22e59e3e637f",
-        //                 "25518de8-4f33-4b23-856f-cad03c72df0f"
-        //             ]
-        //         )
-        //     })
-        // );
-
         matches.push(
             MatchInfo({
-                matchId: "1-660accbe-46da-4d22-8c2e-c7d2ac585c22",
+                matchId: "1-206359b8-22c5-426a-afe9-80ef6b3ae879",
                 faction1Players: _toDynamic(
-                    ["d54f9694-1e25-4241-ac0e-3467c5b2aa87", "24ea90e6-8f99-43a0-b209-17aa01a4facd"]
+                    [
+                        "291e4082-5f46-46f6-b424-a63d9b8bdee9",
+                        "6f45ca65-f974-4fee-a1ed-52a958e497b5",
+                        "5d44f998-ef1f-4190-93fa-56ebfaa044c6",
+                        "64961595-7282-41bf-8e32-29b717e854a7",
+                        "1d529d28-a1b5-41e5-8027-dedba2ee7d63"
+                    ]
                 ),
                 faction2Players: _toDynamic(
                     [
-                        "3f73761a-6f93-46e4-a944-94be58dc1bd3",
-                        "faea4e59-670b-4663-960d-2bb2734c552d",
-                        "fd28d84e-6f61-4f77-ba44-9cc4de25e220"
+                        "24ea90e6-8f99-43a0-b209-17aa01a4facd",
+                        "d54f9694-1e25-4241-ac0e-3467c5b2aa87",
+                        "e58e3931-29f4-4640-8bfd-8dbdc4ec7886",
+                        "ac3f355a-3220-4def-b954-6467a8af57f9"
                     ]
                 )
             })
         );
-        
+
         // Approve USDC once
         usdc.approve(address(betting), type(uint256).max);
 
