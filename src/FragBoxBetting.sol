@@ -676,7 +676,7 @@ contract FragBoxBetting is ReentrancyGuard, Ownable, Pausable {
         MatchBet storage mb = matchBets[matchKey];
 
         bytes32 playerKey = _getKey(playerId);
-        InFlightBet storage inFlightBet = mb.betAmountsInRosterValidationFlight[msg.sender][playerKey];
+        InFlightBet storage inFlightBet = mb.betAmountsInRosterValidationFlight[withdrawalAddress][playerKey];
 
         uint256 withdrawalAmount = inFlightBet.betAmount;
         if (withdrawalAmount <= 0) {
